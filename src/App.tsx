@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { builtinPrompts as promptConcepts } from './features/prompt-library/builtinPrompts'
+import { searchPrompts } from './features/prompt-library/searchPrompts'
 import type { PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
@@ -56,6 +57,9 @@ function PromptCard({
 export function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
+  const [query, setQuery] = useState('')
+  const searchInput = useRef<HTMLInputElement>(null)
+  const visiblePrompts = useMemo(() => searchPrompts(promptConcepts, query), [query])
   const selected = promptConcepts.filter((concept) => selectedIds.has(concept.id))
   const separator = language === 'zh' ? '，' : ', '
   const ending = language === 'zh' ? '。' : '.'
@@ -72,6 +76,18 @@ export function App() {
     })
   }
 
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k') {
+        event.preventDefault()
+        searchInput.current?.focus()
+      }
+    }
+
+    window.addEventListener('keydown', focusSearch)
+    return () => window.removeEventListener('keydown', focusSearch)
+  }, [])
+
   return (
     <div className="workspace-shell">
       <header className="topbar">
@@ -84,7 +100,17 @@ export function App() {
         </div>
         <label className="search-box">
           <span aria-hidden="true">⌕</span>
-          <input aria-label="搜索提示词" placeholder="搜索人物、场景、风格、镜头……" />
+          <input
+            ref={searchInput}
+            type="search"
+            aria-label="搜索提示词"
+            placeholder="搜索人物、场景、风格、镜头……"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setQuery('')
+            }}
+          />
           <kbd>Ctrl K</kbd>
         </label>
         <div className="media-switch" aria-label="媒体类型">
@@ -122,7 +148,11 @@ export function App() {
               <h1>灵感词库</h1>
               <p>不必先想好答案，看到喜欢的就把它加入灵感篮。</p>
             </div>
-            <span>正在展示 {promptConcepts.length} 个精选词条</span>
+            <span>
+              {query.trim()
+                ? `找到 ${visiblePrompts.length} 个词条`
+                : `正在展示 ${promptConcepts.length} 个精选词条`}
+            </span>
           </div>
           <div className="filter-row" aria-label="推荐筛选">
             {['全部', '新手友好', '人像', '电影感', '东方美学', '自然', '商业'].map(
@@ -136,17 +166,27 @@ export function App() {
           <section aria-labelledby="browse-title">
             <div className="section-heading">
               <h2 id="browse-title">浏览全部灵感</h2>
-              <span>{promptConcepts.length} 个词条</span>
+              <span>{visiblePrompts.length} 个词条</span>
             </div>
             <div className="prompt-grid">
-              {promptConcepts.map((concept) => (
-                <PromptCard
-                  key={concept.id}
-                  concept={concept}
-                  selected={selectedIds.has(concept.id)}
-                  onToggle={() => toggleConcept(concept.id)}
-                />
-              ))}
+              {visiblePrompts.length ? (
+                visiblePrompts.map((concept) => (
+                  <PromptCard
+                    key={concept.id}
+                    concept={concept}
+                    selected={selectedIds.has(concept.id)}
+                    onToggle={() => toggleConcept(concept.id)}
+                  />
+                ))
+              ) : (
+                <div className="search-empty">
+                  <strong>没有找到匹配的词条</strong>
+                  <p>试试名称、别名、标签、分类或英文关键词。</p>
+                  <button type="button" onClick={() => setQuery('')}>
+                    清除搜索
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         </main>

@@ -285,6 +285,34 @@ button:disabled {
   gap: 10px;
 }
 
+.search-empty {
+  grid-column: 1 / -1;
+  padding: 52px 24px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 13px;
+  color: #526075;
+  background: #fff;
+  text-align: center;
+}
+
+.search-empty strong {
+  color: #18202d;
+}
+
+.search-empty p {
+  margin: 8px 0 16px;
+  font-size: 13px;
+}
+
+.search-empty button {
+  padding: 7px 12px;
+  border: 1px solid #9dbcf4;
+  border-radius: 8px;
+  color: #174ea6;
+  background: #eef4ff;
+  cursor: pointer;
+}
+
 .prompt-card {
   min-height: 138px;
   position: relative;
