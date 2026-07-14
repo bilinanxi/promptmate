@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+target/
+dist/
+
+# Tauri / Rust
+src-tauri/target/
+**/*.rs.bk
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Local application data
+user-data/
+*.sqlite
+*.sqlite3
+*.db
+logs/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log
