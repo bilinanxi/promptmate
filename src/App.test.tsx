@@ -139,6 +139,23 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: /年轻女性/ })).toBeVisible()
   })
 
+  it('switches to the validated video library and resets media-specific state', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: '场景环境' }))
+    await user.type(screen.getByRole('searchbox', { name: '搜索提示词' }), '雨')
+    await user.click(screen.getByRole('button', { name: '视频' }))
+
+    expect(screen.getByRole('button', { name: /缓慢推进镜头/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /年轻女性/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: '搜索提示词' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: '为你推荐' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
+    expect(screen.getByRole('button', { name: '视频' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('combines every criterion and clears all filters from the empty state', async () => {
     const user = userEvent.setup()
     render(<App />)

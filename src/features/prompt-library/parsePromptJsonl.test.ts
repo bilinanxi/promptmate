@@ -57,6 +57,12 @@ describe('parsePromptJsonl', () => {
     )
   })
 
+  it('rejects records that do not belong to the requested media library', () => {
+    expect(() => parsePromptJsonl(JSON.stringify(validConcept), 'video.jsonl', 'video')).toThrow(
+      'video.jsonl:1 is invalid: media_types must include "video"',
+    )
+  })
+
   it('reports schema violations outside required fields', () => {
     const invalidConcept = { ...validConcept, source: 'unknown' }
 

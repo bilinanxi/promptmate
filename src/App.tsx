@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { builtinPrompts as promptConcepts } from './features/prompt-library/builtinPrompts'
+import { builtinPromptsByMedia } from './features/prompt-library/builtinPrompts'
 import { filterPrompts } from './features/prompt-library/filterPrompts'
-import type { PromptConcept, PromptSource } from './features/prompt-library/types'
+import type { MediaType, PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
 const sourceLabels: Record<PromptSource, string> = {
@@ -11,26 +11,34 @@ const sourceLabels: Record<PromptSource, string> = {
   ai_generated: 'AI 生成',
 }
 
-const categories = [
-  { label: '为你推荐' },
-  { id: 'people-subjects', label: '人物主体' },
-  { id: 'scene-environment', label: '场景环境' },
-  { id: 'action-pose', label: '动作姿态' },
-  { id: 'clothing-accessories', label: '服装配饰' },
-  { id: 'lighting-atmosphere', label: '灯光氛围' },
-  { id: 'camera-composition', label: '镜头构图' },
-  { id: 'visual-style', label: '艺术风格' },
-]
-
-const tagFilters = [
-  { label: '全部' },
-  { label: '新手友好', tag: '新手友好' },
-  { label: '人像', tag: '人像' },
-  { label: '电影感', tag: '电影感' },
-  { label: '东方美学', tag: '东方美学' },
-  { label: '自然', tag: '自然' },
-  { label: '商业', tag: '商业' },
-]
+const libraryNavigation: Record<
+  MediaType,
+  { categories: { id?: string; label: string }[]; tags: string[] }
+> = {
+  image: {
+    categories: [
+      { label: '为你推荐' },
+      { id: 'people-subjects', label: '人物主体' },
+      { id: 'scene-environment', label: '场景环境' },
+      { id: 'action-pose', label: '动作姿态' },
+      { id: 'clothing-accessories', label: '服装配饰' },
+      { id: 'lighting-atmosphere', label: '灯光氛围' },
+      { id: 'camera-composition', label: '镜头构图' },
+      { id: 'visual-style', label: '艺术风格' },
+    ],
+    tags: ['新手友好', '人像', '电影感', '东方美学', '自然', '商业'],
+  },
+  video: {
+    categories: [
+      { label: '为你推荐' },
+      { id: 'camera-movement', label: '镜头运动' },
+      { id: 'subject-motion', label: '主体运动' },
+      { id: 'time-transition', label: '时间与转场' },
+      { id: 'motion-atmosphere', label: '动态氛围' },
+    ],
+    tags: ['运镜', '电影感', '人物', '转场', '自然', '商业'],
+  },
+}
 
 function PromptCard({
   concept,
@@ -65,6 +73,7 @@ function PromptCard({
 }
 
 export function App() {
+  const [mediaType, setMediaType] = useState<MediaType>('image')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
   const [query, setQuery] = useState('')
@@ -72,9 +81,15 @@ export function App() {
   const [tag, setTag] = useState<string>()
   const [source, setSource] = useState<PromptSource>()
   const searchInput = useRef<HTMLInputElement>(null)
+  const promptConcepts = builtinPromptsByMedia[mediaType]
+  const { categories, tags } = libraryNavigation[mediaType]
+  const tagFilters: { label: string; tag?: string }[] = [
+    { label: '全部' },
+    ...tags.map((value) => ({ label: value, tag: value })),
+  ]
   const visiblePrompts = useMemo(
     () => filterPrompts(promptConcepts, { query, categoryId, tag, source }),
-    [query, categoryId, tag, source],
+    [promptConcepts, query, categoryId, tag, source],
   )
   const hasActiveFilters = Boolean(categoryId || tag || source)
   const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
@@ -99,6 +114,13 @@ export function App() {
     setCategoryId(undefined)
     setTag(undefined)
     setSource(undefined)
+  }
+
+  function switchMedia(nextMediaType: MediaType) {
+    if (nextMediaType === mediaType) return
+    setMediaType(nextMediaType)
+    setSelectedIds(new Set())
+    clearCriteria()
   }
 
   useEffect(() => {
@@ -139,10 +161,20 @@ export function App() {
           <kbd>Ctrl K</kbd>
         </label>
         <div className="media-switch" aria-label="媒体类型">
-          <button type="button" className="active">
+          <button
+            type="button"
+            className={mediaType === 'image' ? 'active' : ''}
+            aria-pressed={mediaType === 'image'}
+            onClick={() => switchMedia('image')}
+          >
             图片
           </button>
-          <button type="button" disabled>
+          <button
+            type="button"
+            className={mediaType === 'video' ? 'active' : ''}
+            aria-pressed={mediaType === 'video'}
+            onClick={() => switchMedia('video')}
+          >
             视频
           </button>
         </div>
