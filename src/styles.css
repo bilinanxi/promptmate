@@ -477,12 +477,16 @@ button:disabled {
 }
 
 .selected-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 6px 9px;
   border: 1px solid #cbd8ed;
   border-radius: 999px;
   color: #174ea6;
   background: #eef4ff;
   font-size: 12px;
+  cursor: pointer;
 }
 
 .basket-empty,

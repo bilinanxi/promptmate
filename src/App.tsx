@@ -274,9 +274,16 @@ export function App() {
           <div className="selected-list">
             {selected.length ? (
               selected.map((concept) => (
-                <span className="selected-chip" key={concept.id}>
+                <button
+                  type="button"
+                  className="selected-chip"
+                  aria-label={`从灵感篮移除 ${concept.zh}`}
+                  onClick={() => toggleConcept(concept.id)}
+                  key={concept.id}
+                >
                   {concept.zh}
-                </span>
+                  <span aria-hidden="true">×</span>
+                </button>
               ))
             ) : (
               <p className="basket-empty">点击任意词条卡片，把灵感放进来。</p>

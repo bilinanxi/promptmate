@@ -24,6 +24,53 @@ describe('PromptMate workspace', () => {
     expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
   })
 
+  it('removes one selected prompt from the basket and updates the composition', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
+    await user.click(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' }))
+
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('1')
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('霓虹雨夜街道。')
+    expect(screen.getByRole('button', { name: /年轻女性/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('restores the empty basket after removing the final selected prompt', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' }))
+
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
+    expect(screen.getByText('点击任意词条卡片，把灵感放进来。')).toBeVisible()
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent(
+      '从词库选择词条，这里会自动组合。',
+    )
+    expect(screen.getByRole('button', { name: '复制提示词' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /年轻女性/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('updates the English composition after removing a selected prompt', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
+    await user.click(screen.getByRole('button', { name: 'EN' }))
+    await user.click(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' }))
+
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('neon-lit rainy street.')
+  })
+
   it('switches the composed prompt to English', async () => {
     const user = userEvent.setup()
     render(<App />)
