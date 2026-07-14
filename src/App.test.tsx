@@ -86,4 +86,82 @@ describe('PromptMate workspace', () => {
     expect(search).toHaveValue('')
     expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
   })
+
+  it('filters the library by category and restores all recommendations', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '场景环境' }))
+
+    expect(screen.getByRole('button', { name: /霓虹雨夜街道/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /静谧中式庭院/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /年轻女性/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '场景环境' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('找到 2 个词条')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '为你推荐' }))
+
+    expect(screen.getByRole('button', { name: /年轻女性/ })).toBeVisible()
+    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+  })
+
+  it('filters the library by tag and clears the tag with All', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '电影感' }))
+
+    expect(screen.getByRole('button', { name: /霓虹雨夜街道/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /克制的电影感/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /年轻女性/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '电影感' })).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByRole('button', { name: '全部' }))
+
+    expect(screen.getByRole('button', { name: /年轻女性/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: '全部' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('toggles an exact source filter', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const myPrompts = screen.getByRole('button', { name: '我的词条' })
+
+    await user.click(myPrompts)
+
+    expect(myPrompts).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('没有找到匹配的词条')).toBeVisible()
+    expect(screen.getByText('找到 0 个词条')).toBeVisible()
+
+    await user.click(myPrompts)
+
+    expect(myPrompts).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /年轻女性/ })).toBeVisible()
+  })
+
+  it('combines every criterion and clears all filters from the empty state', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const search = screen.getByRole('searchbox', { name: '搜索提示词' })
+
+    await user.click(screen.getByRole('button', { name: '场景环境' }))
+    await user.click(screen.getByRole('button', { name: '电影感' }))
+    await user.click(screen.getByRole('button', { name: '内置精选' }))
+    await user.type(search, '雨')
+
+    expect(screen.getByRole('button', { name: /霓虹雨夜街道/ })).toBeVisible()
+    expect(screen.getByText('找到 1 个词条')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '我的词条' }))
+    await user.click(screen.getByRole('button', { name: '清除全部筛选' }))
+
+    expect(search).toHaveValue('')
+    expect(screen.getByRole('button', { name: '为你推荐' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '全部' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '我的词条' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+  })
 })

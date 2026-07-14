@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { builtinPrompts as promptConcepts } from './features/prompt-library/builtinPrompts'
-import { searchPrompts } from './features/prompt-library/searchPrompts'
+import { filterPrompts } from './features/prompt-library/filterPrompts'
 import type { PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
@@ -12,14 +12,24 @@ const sourceLabels: Record<PromptSource, string> = {
 }
 
 const categories = [
-  '为你推荐',
-  '人物主体',
-  '场景环境',
-  '动作姿态',
-  '服装配饰',
-  '灯光氛围',
-  '镜头构图',
-  '艺术风格',
+  { label: '为你推荐' },
+  { id: 'people-subjects', label: '人物主体' },
+  { id: 'scene-environment', label: '场景环境' },
+  { id: 'action-pose', label: '动作姿态' },
+  { id: 'clothing-accessories', label: '服装配饰' },
+  { id: 'lighting-atmosphere', label: '灯光氛围' },
+  { id: 'camera-composition', label: '镜头构图' },
+  { id: 'visual-style', label: '艺术风格' },
+]
+
+const tagFilters = [
+  { label: '全部' },
+  { label: '新手友好', tag: '新手友好' },
+  { label: '人像', tag: '人像' },
+  { label: '电影感', tag: '电影感' },
+  { label: '东方美学', tag: '东方美学' },
+  { label: '自然', tag: '自然' },
+  { label: '商业', tag: '商业' },
 ]
 
 function PromptCard({
@@ -58,8 +68,16 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
   const [query, setQuery] = useState('')
+  const [categoryId, setCategoryId] = useState<string>()
+  const [tag, setTag] = useState<string>()
+  const [source, setSource] = useState<PromptSource>()
   const searchInput = useRef<HTMLInputElement>(null)
-  const visiblePrompts = useMemo(() => searchPrompts(promptConcepts, query), [query])
+  const visiblePrompts = useMemo(
+    () => filterPrompts(promptConcepts, { query, categoryId, tag, source }),
+    [query, categoryId, tag, source],
+  )
+  const hasActiveFilters = Boolean(categoryId || tag || source)
+  const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
   const selected = promptConcepts.filter((concept) => selectedIds.has(concept.id))
   const separator = language === 'zh' ? '，' : ', '
   const ending = language === 'zh' ? '。' : '.'
@@ -74,6 +92,13 @@ export function App() {
       else next.add(id)
       return next
     })
+  }
+
+  function clearCriteria() {
+    setQuery('')
+    setCategoryId(undefined)
+    setTag(undefined)
+    setSource(undefined)
   }
 
   useEffect(() => {
@@ -127,18 +152,30 @@ export function App() {
         <nav className="sidebar" aria-label="提示词分类">
           <p className="sidebar-title">浏览词库</p>
           {categories.map((category, index) => (
-            <div key={category} className={`category${index === 0 ? ' active' : ''}`}>
-              <span aria-hidden="true">{index === 0 ? '✦' : category[0]}</span>
-              {category}
-            </div>
+            <button
+              key={category.label}
+              type="button"
+              className={`category${categoryId === category.id ? ' active' : ''}`}
+              aria-pressed={categoryId === category.id}
+              onClick={() => setCategoryId(category.id)}
+            >
+              <span aria-hidden="true">{index === 0 ? '✦' : category.label[0]}</span>
+              {category.label}
+            </button>
           ))}
           <div className="sidebar-divider" />
           <p className="sidebar-title">词条来源</p>
-          {Object.entries(sourceLabels).map(([source, label]) => (
-            <div key={source} className="source-filter">
-              <i className={`source-dot source-${source}`} />
+          {(Object.entries(sourceLabels) as [PromptSource, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`source-filter${source === value ? ' active' : ''}`}
+              aria-pressed={source === value}
+              onClick={() => setSource((current) => (current === value ? undefined : value))}
+            >
+              <i className={`source-dot source-${value}`} />
               {label}
-            </div>
+            </button>
           ))}
         </nav>
 
@@ -149,19 +186,23 @@ export function App() {
               <p>不必先想好答案，看到喜欢的就把它加入灵感篮。</p>
             </div>
             <span>
-              {query.trim()
+              {hasActiveCriteria
                 ? `找到 ${visiblePrompts.length} 个词条`
                 : `正在展示 ${promptConcepts.length} 个精选词条`}
             </span>
           </div>
           <div className="filter-row" aria-label="推荐筛选">
-            {['全部', '新手友好', '人像', '电影感', '东方美学', '自然', '商业'].map(
-              (filter, index) => (
-                <span key={filter} className={`filter-pill${index === 0 ? ' active' : ''}`}>
-                  {filter}
-                </span>
-              ),
-            )}
+            {tagFilters.map((filter) => (
+              <button
+                key={filter.label}
+                type="button"
+                className={`filter-pill${tag === filter.tag ? ' active' : ''}`}
+                aria-pressed={tag === filter.tag}
+                onClick={() => setTag(filter.tag)}
+              >
+                {filter.label}
+              </button>
+            ))}
           </div>
           <section aria-labelledby="browse-title">
             <div className="section-heading">
@@ -182,8 +223,8 @@ export function App() {
                 <div className="search-empty">
                   <strong>没有找到匹配的词条</strong>
                   <p>试试名称、别名、标签、分类或英文关键词。</p>
-                  <button type="button" onClick={() => setQuery('')}>
-                    清除搜索
+                  <button type="button" onClick={clearCriteria}>
+                    {hasActiveFilters ? '清除全部筛选' : '清除搜索'}
                   </button>
                 </div>
               )}
