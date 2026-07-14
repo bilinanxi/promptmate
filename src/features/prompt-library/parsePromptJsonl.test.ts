@@ -64,4 +64,20 @@ describe('parsePromptJsonl', () => {
       'image.jsonl:1 is invalid: source must be equal to one of the allowed values',
     )
   })
+
+  it('preserves minimum-length validation', () => {
+    const invalidConcept = { ...validConcept, en: '' }
+
+    expect(() => parsePromptJsonl(JSON.stringify(invalidConcept), 'image.jsonl')).toThrow(
+      'image.jsonl:1 is invalid: en must NOT have fewer than 1 characters',
+    )
+  })
+
+  it('preserves deep equality checks for unique arrays', () => {
+    const invalidConcept = { ...validConcept, tags: ['电影感', '电影感'] }
+
+    expect(() => parsePromptJsonl(JSON.stringify(invalidConcept), 'image.jsonl')).toThrow(
+      'image.jsonl:1 is invalid: tags must NOT have duplicate items',
+    )
+  })
 })

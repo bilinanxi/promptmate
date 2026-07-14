@@ -1,8 +1,8 @@
-import Ajv, { type ErrorObject } from 'ajv'
-import promptConceptSchema from '../../../resources/schemas/prompt-concept.schema.json'
+import type { ErrorObject, ValidateFunction } from 'ajv'
 import type { PromptConcept } from './types'
+import generatedValidateConcept from './validatePromptConcept.generated'
 
-const validateConcept = new Ajv({ allErrors: true }).compile<PromptConcept>(promptConceptSchema)
+const validateConcept = generatedValidateConcept as ValidateFunction<PromptConcept>
 
 function formatValidationError(error: ErrorObject): string {
   if (error.keyword === 'required') {

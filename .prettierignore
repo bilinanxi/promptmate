@@ -1,6 +1,7 @@
 node_modules
 dist
 coverage
+src/features/prompt-library/*.generated.ts
 prompt-assistant-prototype.html
 2026-*.md
 LICENSE
