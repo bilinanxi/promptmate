@@ -3,130 +3,134 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>PromptMate · 精简原型</title>
+  <title>PromptMate · 词库优先原型</title>
   <style>
-    :root{--ink:#202124;--muted:#71717a;--line:#e7e7e9;--soft:#f7f7f8;--paper:#fff;--black:#18181b;--blue:#2563eb;--green:#15803d;--orange:#c2410c;--radius:14px;--shadow:0 1px 2px #0000000a,0 8px 30px #0000000a}
-    *{box-sizing:border-box}html,body{margin:0;min-height:100%}body{font:14px/1.55 "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;color:var(--ink);background:#fafafa;-webkit-font-smoothing:antialiased}
-    button,input,textarea,select{font:inherit;color:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #bfdbfe;outline-offset:2px}
-    .topbar{height:58px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 24px;position:sticky;top:0;z-index:20}.brand{display:flex;align-items:center;gap:10px;font-weight:700}.mark{width:30px;height:30px;border-radius:9px;background:var(--black);color:#fff;display:grid;place-items:center;font-size:13px}.brand small{font-weight:400;color:var(--muted);margin-left:4px}.nav{display:flex;gap:4px;margin:auto}.nav button{border:0;background:transparent;padding:8px 12px;border-radius:8px;color:var(--muted)}.nav button:hover{background:var(--soft);color:var(--ink)}.nav button.active{background:#ededee;color:var(--ink);font-weight:600}.status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}.status:before{content:"";width:7px;height:7px;border-radius:50%;background:#22c55e}
-    main{width:min(920px,calc(100% - 32px));margin:0 auto;padding:42px 0 72px}.page{display:none}.page.active{display:block}.heading{display:flex;align-items:end;gap:18px;margin-bottom:24px}.heading h1{font-size:30px;line-height:1.15;letter-spacing:-.8px;margin:0}.heading p{color:var(--muted);margin:5px 0 0}.heading .spacer{flex:1}
-    .tabs{display:inline-flex;background:#ededee;padding:3px;border-radius:10px}.tabs button{height:32px;padding:0 13px;border:0;background:transparent;border-radius:8px;color:var(--muted)}.tabs button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px #0002;font-weight:600}
-    .toolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.select{height:38px;border:1px solid var(--line);background:#fff;border-radius:9px;padding:0 10px}.spacer{flex:1}.quiet{color:var(--muted);font-size:12px}
-    .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}.compose{padding:20px}.label{display:block;font-weight:600;margin-bottom:9px}.idea{width:100%;min-height:132px;resize:vertical;border:0;background:transparent;padding:0;font-size:17px;line-height:1.7}.idea:focus{outline:0}.idea::placeholder{color:#b0b0b5}.divider{height:1px;background:var(--line);margin:17px 0}
-    .suggestions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.suggestions .caption{font-size:12px;color:var(--muted);margin-right:2px}.chip{border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:6px 10px}.chip:hover{background:#ededee}.chip.added{background:#eef2ff;border-color:#c7d2fe;color:#3730a3}.more{border:0;background:transparent;color:var(--muted);padding:6px 7px}.more:hover{color:var(--ink)}
-    .actionrow{display:flex;align-items:center;gap:9px;margin-top:18px}.primary,.secondary{height:40px;border-radius:9px;padding:0 15px;font-weight:600}.primary{border:0;background:var(--black);color:#fff}.primary:hover{background:#303033}.primary:disabled{opacity:.55;cursor:wait}.secondary{border:1px solid var(--line);background:#fff}.secondary:hover{background:var(--soft)}
-    .result{margin-top:14px;padding:20px;display:none}.result.show{display:block;animation:rise .18s ease-out}.resulthead{display:flex;align-items:center;gap:10px;margin-bottom:15px}.resulthead b{font-size:15px}.resulttext{min-height:106px;background:var(--soft);border-radius:10px;padding:14px 15px;font-size:15px;line-height:1.75;outline:0}.resultfoot{display:flex;align-items:center;gap:8px;margin-top:12px}.tag{font-size:11px;padding:3px 7px;border-radius:999px;background:#f0fdf4;color:var(--green)}.toast{font-size:12px;color:var(--green);opacity:0}.toast.show{opacity:1}.source-note{font-size:12px;color:var(--muted)}
-    .drawerback{position:fixed;inset:0;background:#0004;display:none;z-index:30}.drawerback.open{display:block}.drawer{position:absolute;right:0;top:0;height:100%;width:min(390px,92vw);background:#fff;padding:22px;box-shadow:-20px 0 60px #0002;overflow:auto}.drawerhead{display:flex;align-items:center;margin-bottom:18px}.drawerhead h2{margin:0;font-size:20px}.close{margin-left:auto;width:34px;height:34px;border:0;border-radius:8px;background:var(--soft)}.search{width:100%;height:42px;border:1px solid var(--line);border-radius:9px;padding:0 12px;margin-bottom:16px}.group{margin:18px 0}.group h3{font-size:12px;color:var(--muted);font-weight:600;margin:0 0 8px}.words{display:grid;grid-template-columns:1fr 1fr;gap:7px}.word{text-align:left;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 10px}.word:hover{background:var(--soft)}.word small{display:block;color:var(--muted)}
-    .simplecard{padding:22px}.drop{height:230px;border:1px dashed #c9c9ce;border-radius:12px;background:var(--soft);display:grid;place-items:center;text-align:center;color:var(--muted)}.drop b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}.analysis{display:none;margin-top:16px}.analysis.show{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.fact{background:var(--soft);border-radius:10px;padding:12px}.fact small{display:block;color:var(--muted);margin-bottom:4px}.settings{display:grid;gap:10px}.row{display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid var(--line)}.row:last-child{border:0}.row div:first-child{flex:1}.row small{display:block;color:var(--muted);margin-top:3px}.switch{width:42px;height:24px;border:0;border-radius:99px;background:#d4d4d8;padding:3px}.switch:after{content:"";display:block;width:18px;height:18px;border-radius:50%;background:#fff;transition:.15s}.switch.on{background:var(--black)}.switch.on:after{transform:translateX(18px)}
-    .library-list{display:grid;gap:8px}.library-row{display:grid;grid-template-columns:1.3fr .8fr .6fr;align-items:center;padding:13px 14px;border:1px solid var(--line);border-radius:10px;background:#fff}.library-row small{color:var(--muted)}.badge{justify-self:start;font-size:11px;padding:3px 7px;border-radius:999px;background:var(--soft)}.badge.ai{color:var(--orange);background:#fff7ed}.badge.user{color:var(--green);background:#f0fdf4}
-    @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-    @media(max-width:700px){.topbar{padding:0 12px}.brand small,.status{display:none}.nav{margin-left:auto;margin-right:0}.nav button{font-size:0;padding:8px 10px}.nav button:before{font-size:15px}.nav button:nth-child(1):before{content:"✦"}.nav button:nth-child(2):before{content:"▤"}.nav button:nth-child(3):before{content:"▧"}.nav button:nth-child(4):before{content:"⚙"}main{padding-top:26px}.heading{align-items:start}.heading h1{font-size:26px}.heading p{max-width:280px}.tabs{width:100%}.tabs button{flex:1}.analysis.show{grid-template-columns:1fr}.library-row{grid-template-columns:1fr auto}.library-row>small{display:none}}
+    :root{--ink:#18202d;--muted:#687386;--line:#e2e6ec;--soft:#f5f7fa;--paper:#fff;--blue:#2563eb;--blue-soft:#eef4ff;--green:#147d64;--orange:#bd5b22;--purple:#7557c7;--shadow:0 1px 2px #0f306a0a,0 8px 26px #0f306a0d}
+    *{box-sizing:border-box}html,body{height:100%;margin:0}body{font:14px/1.5 "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;color:var(--ink);background:var(--soft);overflow:hidden;-webkit-font-smoothing:antialiased}button,input,textarea{font:inherit;color:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #bfdbfe;outline-offset:2px}
+    .topbar{height:60px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 18px;gap:16px}.brand{display:flex;align-items:center;gap:10px;font-weight:720;min-width:172px}.mark{width:32px;height:32px;border-radius:10px;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:12px}.brand small{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:-2px}.global-search{width:min(560px,46vw);height:40px;border:1px solid var(--line);background:var(--soft);border-radius:11px;display:flex;align-items:center;padding:0 12px;gap:9px}.global-search:focus-within{background:#fff;border-color:#9bbcf8;box-shadow:0 0 0 3px #dbeafe}.global-search input{border:0;outline:0;background:transparent;width:100%}.key{font-size:11px;color:#8b95a5;border:1px solid #d8dde5;background:#fff;border-radius:5px;padding:1px 6px}.top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}.mode{display:flex;background:var(--soft);border:1px solid var(--line);padding:2px;border-radius:9px}.mode button{height:31px;padding:0 12px;border:0;background:transparent;border-radius:7px;color:var(--muted)}.mode button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px #0002;font-weight:600}.icon-btn{width:38px;height:38px;border:1px solid var(--line);background:#fff;border-radius:10px}.icon-btn:hover{background:var(--soft)}.basket-toggle{display:none}
+    .app{height:calc(100% - 60px);display:grid;grid-template-columns:190px minmax(560px,1fr) 328px}.sidebar{background:#fff;border-right:1px solid var(--line);padding:18px 12px;overflow:auto}.side-title{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.06em;padding:0 10px 8px}.category{width:100%;height:38px;border:0;background:transparent;border-radius:9px;padding:0 10px;display:flex;align-items:center;gap:10px;text-align:left;color:#526075;margin:2px 0}.category:hover{background:var(--soft);color:var(--ink)}.category.active{background:var(--blue-soft);color:#174ea6;font-weight:650}.category .symbol{width:19px;text-align:center}.category .count{margin-left:auto;color:#8b95a5;font-size:11px}.side-sep{height:1px;background:var(--line);margin:16px 8px}.source-filter{display:flex;align-items:center;gap:9px;padding:7px 10px;color:#526075}.dot{width:8px;height:8px;border-radius:50%}.builtin{background:var(--blue)}.user{background:var(--green)}.ai{background:var(--orange)}.imported{background:var(--purple)}
+    .catalog{overflow:auto;padding:24px 26px 70px}.catalog-head{display:flex;align-items:start;gap:16px;margin-bottom:18px}.catalog-head h1{font-size:26px;line-height:1.2;margin:0;letter-spacing:-.5px}.catalog-head p{margin:5px 0 0;color:var(--muted)}.catalog-head .summary{margin-left:auto;font-size:12px;color:var(--muted);padding-top:7px}.filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:22px}.filter{height:32px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:0 11px;color:#526075}.filter:hover{border-color:#b8c1ce}.filter.active{border-color:#9dbcf4;background:var(--blue-soft);color:#174ea6;font-weight:600}.section-head{display:flex;align-items:center;margin:26px 0 12px}.section-head h2{font-size:16px;margin:0}.section-head span{margin-left:8px;color:var(--muted);font-size:12px}.section-head button{margin-left:auto;border:0;background:transparent;color:var(--blue)}
+    .starter-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}.starter{min-height:124px;border:1px solid var(--line);background:#fff;border-radius:15px;padding:16px;box-shadow:var(--shadow);text-align:left;position:relative;overflow:hidden}.starter:before{content:"";position:absolute;inset:0 0 auto;height:4px;background:var(--tone)}.starter:hover{transform:translateY(-1px);border-color:#bac8dc}.starter .eyebrow{font-size:11px;color:var(--muted);margin-bottom:8px}.starter b{display:block;font-size:16px;margin-bottom:5px}.starter p{margin:0;color:#526075;font-size:12px;line-height:1.55}.starter .use{position:absolute;right:12px;bottom:10px;color:var(--blue);font-weight:650;font-size:12px}
+    .word-grid{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px}.word-card{min-height:130px;border:1px solid var(--line);background:#fff;border-radius:13px;padding:14px;text-align:left;position:relative;transition:.14s}.word-card:hover{border-color:#aebdd1;box-shadow:var(--shadow);transform:translateY(-1px)}.word-card.selected{border-color:#8bb1f4;background:#f8fbff}.card-top{display:flex;align-items:start;gap:8px}.word-card h3{font-size:15px;margin:0}.word-card .en{color:var(--muted);font-size:11px;margin-top:1px}.favorite{margin-left:auto;border:0;background:transparent;color:#a0a8b5;font-size:17px;padding:0 2px}.favorite.on{color:#e3a008}.word-card p{font-size:12px;color:#687386;margin:12px 0 24px;line-height:1.5}.meta{position:absolute;left:14px;right:14px;bottom:11px;display:flex;align-items:center}.source{font-size:10px;border-radius:999px;padding:2px 6px;background:var(--soft);color:var(--muted)}.source.ai-source{background:#fff4ed;color:var(--orange)}.source.user-source{background:#eefbf7;color:var(--green)}.add{margin-left:auto;width:25px;height:25px;border:1px solid var(--line);background:#fff;border-radius:7px;color:var(--blue);font-size:17px;line-height:1}.word-card.selected .add{background:var(--blue);border-color:var(--blue);color:#fff}.empty{grid-column:1/-1;padding:50px;text-align:center;color:var(--muted);border:1px dashed #cbd2dc;border-radius:14px;background:#fff}
+    .basket{background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;min-width:0}.basket-head{height:58px;padding:0 18px;border-bottom:1px solid var(--line);display:flex;align-items:center}.basket-head b{font-size:15px}.basket-count{margin-left:7px;font-size:11px;color:#fff;background:var(--blue);border-radius:999px;min-width:20px;height:20px;display:grid;place-items:center;padding:0 6px}.clear{margin-left:auto;border:0;background:transparent;color:var(--muted);font-size:12px}.selected-list{padding:14px 16px 8px;display:flex;gap:7px;flex-wrap:wrap;align-content:flex-start;max-height:178px;overflow:auto}.selected-chip{border:1px solid #cbd8ed;background:var(--blue-soft);color:#174ea6;border-radius:999px;padding:6px 9px}.selected-chip span{color:#7890b4;margin-left:5px}.basket-empty{color:var(--muted);font-size:12px;padding:10px 2px}.optional{margin:8px 16px 14px}.optional label{font-size:11px;color:var(--muted);display:block;margin-bottom:5px}.optional textarea{width:100%;min-height:64px;resize:none;border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:var(--soft)}.optional textarea:focus{outline:0;border-color:#9bbcf8;background:#fff}.output{border-top:1px solid var(--line);padding:15px 16px 16px;margin-top:auto;background:#fbfcfe}.output-head{display:flex;align-items:center;margin-bottom:10px}.output-head b{font-size:12px}.language{margin-left:auto;display:flex;background:#edf0f4;border-radius:7px;padding:2px}.language button{border:0;background:transparent;border-radius:5px;font-size:11px;padding:3px 7px;color:var(--muted)}.language button.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px #0002}.output-text{min-height:110px;max-height:180px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px;font-size:12px;line-height:1.7;color:#334155}.basket-actions{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}.copy,.polish{height:38px;border-radius:9px;font-weight:650}.copy{border:0;background:var(--blue);color:#fff}.copy:hover{background:#1d4ed8}.polish{border:1px solid var(--line);background:#fff;padding:0 11px;color:#526075}.hint{font-size:10px;color:var(--muted);margin-top:7px;text-align:center}.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,10px);background:#172033;color:#fff;border-radius:9px;padding:9px 13px;opacity:0;pointer-events:none;transition:.18s;z-index:50}.toast.show{opacity:1;transform:translate(-50%,0)}
+    @media(max-width:1120px){.app{grid-template-columns:172px 1fr}.basket{position:fixed;right:0;top:60px;bottom:0;width:328px;z-index:30;box-shadow:-18px 0 50px #0002;transform:translateX(100%);transition:.2s}.basket.open{transform:none}.basket-toggle{display:block!important}.word-grid{grid-template-columns:repeat(2,1fr)}.starter-grid{grid-template-columns:1fr 1fr}.starter:last-child{display:none}}
+    @media(max-width:720px){body{overflow:auto}.topbar{position:sticky;top:0;z-index:40}.brand{min-width:auto}.brand div:last-child{display:none}.global-search{width:auto;flex:1}.global-search .key,.mode{display:none}.app{height:auto;display:block}.sidebar{position:sticky;top:60px;z-index:15;display:flex;overflow:auto;padding:8px;border-right:0;border-bottom:1px solid var(--line)}.side-title,.side-sep,.source-filter,.category .count{display:none}.category{width:auto;min-width:max-content;padding:0 11px}.catalog{padding:20px 14px 80px}.catalog-head .summary{display:none}.starter-grid,.word-grid{grid-template-columns:1fr 1fr}.basket{top:60px;width:min(340px,94vw)}.word-card{min-height:138px}}
+    @media(max-width:480px){.starter-grid,.word-grid{grid-template-columns:1fr}.starter:last-child{display:block}.catalog-head h1{font-size:23px}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
   </style>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="mark">PM</span><span>PromptMate <small>精简原型</small></span></div>
-    <nav class="nav" aria-label="主要导航">
-      <button class="active" data-page="create">创作</button>
-      <button data-page="library">词库</button>
-      <button data-page="image">图片转提示词</button>
-      <button data-page="settings">设置</button>
-    </nav>
-    <span class="status">本地数据</span>
+    <div class="brand"><span class="mark">PM</span><div>PromptMate<small>从词库里找到灵感</small></div></div>
+    <label class="global-search"><span>⌕</span><input id="search" placeholder="搜索人物、场景、风格、镜头……"><span class="key">Ctrl K</span></label>
+    <div class="top-actions">
+      <div class="mode" id="mediaMode"><button class="active">图片</button><button>视频</button></div>
+      <button class="icon-btn basket-toggle" id="basketToggle" title="查看灵感篮">篮</button>
+      <button class="icon-btn" title="设置">⚙</button>
+    </div>
   </header>
 
-  <main>
-    <section class="page active" id="create">
-      <div class="heading"><div><h1>今天想创作什么？</h1><p>写下画面想法，剩下的交给 PromptMate。</p></div><span class="spacer"></span></div>
-      <div class="toolbar">
-        <div class="tabs" id="taskTabs"><button class="active">图片</button><button>视频</button></div>
-        <select class="select" aria-label="目标模型"><option>通用模型</option><option>Midjourney</option><option>FLUX</option><option>Seedream</option><option>可灵视频</option></select>
-        <span class="spacer"></span><span class="quiet">中英文同时生成</span>
-      </div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="side-title">浏览词库</div>
+      <button class="category active" data-category="全部"><span class="symbol">✦</span>为你推荐<span class="count">18</span></button>
+      <button class="category" data-category="人物"><span class="symbol">人</span>人物主体<span class="count">126</span></button>
+      <button class="category" data-category="场景"><span class="symbol">景</span>场景环境<span class="count">284</span></button>
+      <button class="category" data-category="动作"><span class="symbol">动</span>动作姿态<span class="count">168</span></button>
+      <button class="category" data-category="服饰"><span class="symbol">衣</span>服装配饰<span class="count">142</span></button>
+      <button class="category" data-category="光影"><span class="symbol">光</span>灯光氛围<span class="count">96</span></button>
+      <button class="category" data-category="镜头"><span class="symbol">镜</span>镜头构图<span class="count">118</span></button>
+      <button class="category" data-category="风格"><span class="symbol">艺</span>艺术风格<span class="count">212</span></button>
+      <button class="category" data-category="画质"><span class="symbol">质</span>材质画质<span class="count">74</span></button>
+      <div class="side-sep"></div>
+      <div class="side-title">词条来源</div>
+      <div class="source-filter"><i class="dot builtin"></i>内置精选</div>
+      <div class="source-filter"><i class="dot user"></i>我的词条</div>
+      <div class="source-filter"><i class="dot imported"></i>社区导入</div>
+      <div class="source-filter"><i class="dot ai"></i>AI 生成</div>
+    </aside>
 
-      <div class="card compose">
-        <label class="label" for="idea">描述你的想法</label>
-        <textarea class="idea" id="idea" placeholder="例如：雨夜街头，一个穿白裙的女孩回头看向镜头……">雨夜的霓虹街头，一个穿白色长裙的女孩回头看向镜头，电影感。</textarea>
-        <div class="divider"></div>
-        <div class="suggestions" id="suggestions">
-          <span class="caption">快速补充</span>
-          <button class="chip" data-zh="柔和侧逆光" data-en="soft rim lighting">柔和侧逆光</button>
-          <button class="chip" data-zh="浅景深" data-en="shallow depth of field">浅景深</button>
-          <button class="chip" data-zh="中近景" data-en="medium close-up">中近景</button>
-          <button class="chip" data-zh="潮湿反光路面" data-en="wet reflective pavement">潮湿反光路面</button>
-          <button class="more" id="openWords">更多词库 →</button>
+    <main class="catalog">
+      <div class="catalog-head"><div><h1 id="catalogTitle">灵感词库</h1><p>不必先想好答案，看到喜欢的就把它加入灵感篮。</p></div><span class="summary" id="summary">正在展示 18 个精选词条</span></div>
+      <div class="filters" id="filters"><button class="filter active" data-filter="全部">全部</button><button class="filter" data-filter="新手友好">新手友好</button><button class="filter" data-filter="人像">人像</button><button class="filter" data-filter="电影感">电影感</button><button class="filter" data-filter="东方美学">东方美学</button><button class="filter" data-filter="自然">自然</button><button class="filter" data-filter="商业">商业</button></div>
+
+      <section id="starterSection">
+        <div class="section-head"><h2>不知道选什么？从一个组合开始</h2><span>一键加入一组协调的词条</span></div>
+        <div class="starter-grid">
+          <button class="starter" style="--tone:#6f8fdb" data-starter="雨夜电影人像"><div class="eyebrow">人像 · 电影感</div><b>雨夜电影人像</b><p>霓虹街道、回眸、侧逆光、中近景、浅景深</p><span class="use">加入 5 项 +</span></button>
+          <button class="starter" style="--tone:#d59a63" data-starter="东方庭院叙事"><div class="eyebrow">东方 · 静谧</div><b>东方庭院叙事</b><p>中式庭院、薄雾、素色长衫、留白构图、柔光</p><span class="use">加入 5 项 +</span></button>
+          <button class="starter" style="--tone:#5c9a80" data-starter="自然产品摄影"><div class="eyebrow">商业 · 自然</div><b>自然产品摄影</b><p>原木台面、晨光、植物投影、微距、干净背景</p><span class="use">加入 5 项 +</span></button>
         </div>
-        <div class="actionrow">
-          <div class="tabs" id="strength"><button>忠实</button><button class="active">均衡</button><button>创意</button></div>
-          <span class="spacer"></span>
-          <button class="primary" id="optimize">优化提示词</button>
-        </div>
-      </div>
+      </section>
 
-      <div class="card result" id="result">
-        <div class="resulthead"><b>优化结果</b><span class="tag">已完成</span><span class="spacer"></span><div class="tabs" id="languages"><button class="active" data-lang="zh">中文</button><button data-lang="en">EN</button></div></div>
-        <div class="resulttext" id="resultText" contenteditable="true"></div>
-        <div class="resultfoot"><span class="source-note">模拟结果 · 可直接编辑</span><span class="spacer"></span><span class="toast" id="toast">已复制</span><button class="secondary" id="copy">复制</button></div>
-      </div>
-    </section>
+      <div class="section-head"><h2 id="sectionTitle">浏览全部灵感</h2><span id="resultCount"></span><button id="shuffle">换一批</button></div>
+      <div class="word-grid" id="wordGrid"></div>
+    </main>
 
-    <section class="page" id="library">
-      <div class="heading"><div><h1>我的词库</h1><p>搜索、维护和复用常用描述。</p></div><span class="spacer"></span><button class="primary">新建词条</button></div>
-      <div class="toolbar"><input class="search" style="margin:0;flex:1" placeholder="搜索中文、英文或标签"><select class="select"><option>全部来源</option><option>内置</option><option>自定义</option><option>AI 生成</option></select></div>
-      <div class="library-list">
-        <div class="library-row"><div><b>体积光</b><small>volumetric lighting</small></div><small>灯光</small><span class="badge">内置</span></div>
-        <div class="library-row"><div><b>霓虹雨夜</b><small>neon rainy night</small></div><small>场景</small><span class="badge user">自定义</span></div>
-        <div class="library-row"><div><b>潮湿反光路面</b><small>wet reflective pavement</small></div><small>场景</small><span class="badge ai">AI 生成</span></div>
-      </div>
-    </section>
-
-    <section class="page" id="image">
-      <div class="heading"><div><h1>图片转提示词</h1><p>提取可见内容，不承诺还原原始提示词。</p></div></div>
-      <div class="card simplecard">
-        <div class="drop" id="drop"><div><b>拖入或选择一张图片</b><span>PNG、JPG、WEBP · 当前为原型模拟</span><br><button class="secondary" style="margin-top:14px">选择图片</button></div></div>
-        <div class="actionrow"><span class="quiet">🔒 本地分析模式</span><span class="spacer"></span><button class="primary" id="analyze">开始分析</button></div>
-        <div class="analysis" id="analysis"><div class="fact"><small>主体</small>年轻女性、白色长裙</div><div class="fact"><small>场景</small>雨夜街道、霓虹灯</div><div class="fact"><small>镜头</small>中近景、浅景深</div></div>
-      </div>
-    </section>
-
-    <section class="page" id="settings">
-      <div class="heading"><div><h1>设置</h1><p>只保留最常用的连接和隐私选项。</p></div></div>
-      <div class="card simplecard settings">
-        <div class="row"><div><b>文本优化接口</b><small>OpenAI-compatible · 已配置</small></div><button class="secondary">编辑</button></div>
-        <div class="row"><div><b>发送图片前确认</b><small>使用远程视觉接口前询问</small></div><button class="switch on" aria-label="发送图片前确认"></button></div>
-        <div class="row"><div><b>保存提示词历史</b><small>只保存在本机</small></div><button class="switch on" aria-label="保存提示词历史"></button></div>
-      </div>
-    </section>
-  </main>
-
-  <div class="drawerback" id="drawerback">
-    <aside class="drawer" aria-label="提示词库">
-      <div class="drawerhead"><h2>添加提示词</h2><button class="close" id="closeWords">×</button></div>
-      <input class="search" id="wordSearch" placeholder="搜索词库">
-      <div id="wordGroups">
-        <div class="group"><h3>灯光</h3><div class="words"><button class="word" data-zh="体积光" data-en="volumetric lighting">体积光<small>volumetric lighting</small></button><button class="word" data-zh="黄金时刻" data-en="golden hour lighting">黄金时刻<small>golden hour lighting</small></button></div></div>
-        <div class="group"><h3>镜头与构图</h3><div class="words"><button class="word" data-zh="低机位仰拍" data-en="low-angle shot">低机位仰拍<small>low-angle shot</small></button><button class="word" data-zh="中央对称构图" data-en="centered composition">中央对称<small>centered composition</small></button></div></div>
-        <div class="group"><h3>氛围</h3><div class="words"><button class="word" data-zh="电影感" data-en="cinematic">电影感<small>cinematic</small></button><button class="word" data-zh="梦幻薄雾" data-en="dreamy mist">梦幻薄雾<small>dreamy mist</small></button></div></div>
+    <aside class="basket" id="basket">
+      <div class="basket-head"><b>灵感篮</b><span class="basket-count" id="basketCount">0</span><button class="clear" id="clear">清空</button></div>
+      <div class="selected-list" id="selectedList"></div>
+      <div class="optional"><label for="optionalIdea">有明确想法时再补一句（可选）</label><textarea id="optionalIdea" placeholder="例如：人物正在回头看向镜头"></textarea></div>
+      <div class="output">
+        <div class="output-head"><b>自动拼装结果</b><div class="language" id="languages"><button class="active" data-language="zh">中文</button><button data-language="en">EN</button></div></div>
+        <div class="output-text" id="outputText">从左侧词库选择词条，这里会自动组合。</div>
+        <div class="basket-actions"><button class="copy" id="copy">复制提示词</button><button class="polish" id="polish" title="可选功能">AI 润色</button></div>
+        <div class="hint">不调用 AI 也能浏览、拼装和复制</div>
       </div>
     </aside>
   </div>
+  <div class="toast" id="toast"></div>
 
   <script>
-    const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-    const outputs={zh:"一位身穿飘逸白色长裙的年轻女性置身于霓虹灯映照的雨夜街头，行走中回头望向镜头。湿润路面映出蓝紫色光影，柔和侧逆光勾勒人物轮廓，中近景构图，浅景深，电影级调色与细腻雨雾氛围。",en:"A young woman in a flowing white dress walks through a neon-lit street on a rainy night, turning back toward the camera. Blue-violet reflections shimmer across the wet pavement, with soft rim lighting, medium close-up composition, shallow depth of field, cinematic color grading, and a finely detailed rainy atmosphere."};
-    let lang="zh";
-    $$(".nav button").forEach(button=>button.onclick=()=>{$$(".nav button").forEach(x=>x.classList.toggle("active",x===button));$$(".page").forEach(page=>page.classList.toggle("active",page.id===button.dataset.page))});
-    $$(".tabs").forEach(group=>group.onclick=event=>{const button=event.target.closest("button");if(!button)return;[...group.children].forEach(x=>x.classList.toggle("active",x===button))});
-    $$("#suggestions .chip").forEach(chip=>chip.onclick=()=>chip.classList.toggle("added"));
-    $("#optimize").onclick=()=>{const button=$("#optimize");button.disabled=true;button.textContent="正在优化…";setTimeout(()=>{$("#resultText").textContent=outputs[lang];$("#result").classList.add("show");button.disabled=false;button.textContent="再次优化";$("#result").scrollIntoView({behavior:"smooth",block:"nearest"})},650)};
-    $$("#languages button").forEach(button=>button.onclick=()=>{lang=button.dataset.lang;$("#resultText").textContent=outputs[lang]});
-    $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText($("#resultText").innerText)}catch{}$("#toast").classList.add("show");setTimeout(()=>$("#toast").classList.remove("show"),1100)};
-    const drawer=$("#drawerback");$("#openWords").onclick=()=>drawer.classList.add("open");$("#closeWords").onclick=()=>drawer.classList.remove("open");drawer.onclick=e=>{if(e.target===drawer)drawer.classList.remove("open")};
-    $$(".word").forEach(word=>word.onclick=()=>{const text=word.dataset.zh;if(![...$("#suggestions").querySelectorAll(".chip")].some(x=>x.dataset.zh===text)){const chip=document.createElement("button");chip.className="chip added";chip.dataset.zh=text;chip.dataset.en=word.dataset.en;chip.textContent=text;chip.onclick=()=>chip.classList.toggle("added");$("#openWords").before(chip)}drawer.classList.remove("open")});
-    $("#wordSearch").oninput=e=>{const query=e.target.value.toLowerCase();$$(".word").forEach(word=>word.style.display=word.innerText.toLowerCase().includes(query)?"block":"none")};
-    $("#analyze").onclick=()=>{const button=$("#analyze");button.textContent="分析中…";setTimeout(()=>{$("#analysis").classList.add("show");button.textContent="重新分析"},600)};
-    $$(".switch").forEach(button=>button.onclick=()=>button.classList.toggle("on"));
-    document.addEventListener("keydown",e=>{if(e.key==="Escape")drawer.classList.remove("open")});
+    const words=[
+      {id:"young-woman",zh:"年轻女性",en:"young woman",category:"人物",tags:["人像","新手友好"],description:"适合人像、时尚和叙事画面的通用主体。",source:"内置"},
+      {id:"solitary-traveler",zh:"独行旅人",en:"solitary traveler",category:"人物",tags:["电影感","自然"],description:"给风景加入人物尺度和故事感。",source:"内置"},
+      {id:"neon-rain",zh:"霓虹雨夜街道",en:"neon-lit rainy street",category:"场景",tags:["电影感","新手友好"],description:"蓝紫霓虹映在湿润路面，氛围强烈。",source:"社区"},
+      {id:"chinese-courtyard",zh:"静谧中式庭院",en:"serene Chinese courtyard",category:"场景",tags:["东方美学","自然"],description:"白墙黛瓦、植物与留白构成安静空间。",source:"内置"},
+      {id:"misty-forest",zh:"清晨薄雾森林",en:"misty forest at dawn",category:"场景",tags:["自然","新手友好"],description:"柔和晨光穿过薄雾，层次自然舒展。",source:"内置"},
+      {id:"wood-studio",zh:"原木自然摄影台",en:"natural wood studio set",category:"场景",tags:["商业","自然"],description:"适合护肤品、香氛和生活方式产品。",source:"我的"},
+      {id:"look-back",zh:"行走中回眸",en:"looking back while walking",category:"动作",tags:["人像","电影感"],description:"比静态站姿更有叙事和瞬间感。",source:"内置"},
+      {id:"wind-hair",zh:"微风吹动发丝",en:"hair gently moving in the breeze",category:"动作",tags:["人像","自然"],description:"用轻微动态打破僵硬感。",source:"AI"},
+      {id:"white-dress",zh:"飘逸白色长裙",en:"flowing white dress",category:"服饰",tags:["人像","新手友好"],description:"轮廓轻盈，适合自然、梦幻与电影风格。",source:"内置"},
+      {id:"linen-robe",zh:"素色亚麻长衫",en:"plain linen robe",category:"服饰",tags:["东方美学","自然"],description:"低饱和材质，呈现克制朴素的质感。",source:"内置"},
+      {id:"rim-light",zh:"柔和侧逆光",en:"soft rim lighting",category:"光影",tags:["人像","电影感","新手友好"],description:"勾勒主体轮廓，让人物从背景中分离。",source:"内置"},
+      {id:"volumetric",zh:"薄雾体积光",en:"volumetric light through mist",category:"光影",tags:["电影感","自然"],description:"光线在雾气中形成可见层次。",source:"社区"},
+      {id:"leaf-shadow",zh:"植物光影投射",en:"botanical shadow play",category:"光影",tags:["商业","自然"],description:"叶片投影让产品画面更轻松自然。",source:"内置"},
+      {id:"medium-close",zh:"中近景",en:"medium close-up",category:"镜头",tags:["人像","新手友好"],description:"兼顾人物表情与少量环境信息。",source:"内置"},
+      {id:"negative-space",zh:"留白构图",en:"negative space composition",category:"镜头",tags:["东方美学","商业"],description:"减少干扰，为主体和文字预留呼吸空间。",source:"内置"},
+      {id:"macro",zh:"细节微距",en:"macro detail shot",category:"镜头",tags:["商业"],description:"突出材质、纹理和产品工艺细节。",source:"内置"},
+      {id:"cinematic",zh:"克制的电影感",en:"restrained cinematic style",category:"风格",tags:["电影感","人像"],description:"不过度调色，以光影和构图建立叙事。",source:"我的"},
+      {id:"ink-wash",zh:"当代水墨气质",en:"contemporary ink-wash aesthetic",category:"风格",tags:["东方美学"],description:"保留水墨留白与层叠，同时避免古旧感。",source:"AI"}
+    ];
+    const starterSets={
+      "雨夜电影人像":["neon-rain","look-back","rim-light","medium-close","cinematic"],
+      "东方庭院叙事":["chinese-courtyard","volumetric","linen-robe","negative-space","ink-wash"],
+      "自然产品摄影":["wood-studio","leaf-shadow","macro","negative-space","misty-forest"]
+    };
+    const $=selector=>document.querySelector(selector),$$=selector=>[...document.querySelectorAll(selector)];
+    const state={category:"全部",filter:"全部",query:"",language:"zh",selected:new Set(["neon-rain","look-back","rim-light"])};
+    const sourceClass=source=>source==="AI"?"ai-source":source==="我的"?"user-source":"";
+    function visibleWords(){return words.filter(word=>(state.category==="全部"||word.category===state.category)&&(state.filter==="全部"||word.tags.includes(state.filter))&&(!state.query||`${word.zh} ${word.en} ${word.description} ${word.tags.join(" ")}`.toLowerCase().includes(state.query)))}
+    function renderWords(){const list=visibleWords();$("#resultCount").textContent=`${list.length} 个词条`;$("#summary").textContent=`正在展示 ${list.length} 个精选词条`;$("#wordGrid").innerHTML=list.length?list.map(word=>`<article class="word-card ${state.selected.has(word.id)?"selected":""}" data-id="${word.id}"><div class="card-top"><div><h3>${word.zh}</h3><div class="en">${word.en}</div></div><button class="favorite" title="收藏">☆</button></div><p>${word.description}</p><div class="meta"><span class="source ${sourceClass(word.source)}">${word.source}</span><button class="add" title="${state.selected.has(word.id)?"移除":"加入灵感篮"}">${state.selected.has(word.id)?"✓":"+"}</button></div></article>`).join(""):`<div class="empty">没有找到相关词条，试试更短的关键词。</div>`;bindCards()}
+    function bindCards(){$$(".word-card").forEach(card=>{card.querySelector(".add").onclick=()=>toggleWord(card.dataset.id);card.ondblclick=()=>toggleWord(card.dataset.id);card.querySelector(".favorite").onclick=event=>{event.stopPropagation();event.currentTarget.classList.toggle("on");event.currentTarget.textContent=event.currentTarget.classList.contains("on")?"★":"☆"}})}
+    function toggleWord(id){state.selected.has(id)?state.selected.delete(id):state.selected.add(id);renderWords();renderBasket()}
+    function renderBasket(){const selected=words.filter(word=>state.selected.has(word.id));$("#basketCount").textContent=selected.length;$("#selectedList").innerHTML=selected.length?selected.map(word=>`<button class="selected-chip" data-id="${word.id}">${word.zh}<span>×</span></button>`).join(""):`<div class="basket-empty">点击词条上的 +，把灵感放进来。</div>`;$$(".selected-chip").forEach(chip=>chip.onclick=()=>toggleWord(chip.dataset.id));renderOutput()}
+    function renderOutput(){const selected=words.filter(word=>state.selected.has(word.id));const optional=$("#optionalIdea").value.trim();const parts=selected.map(word=>word[state.language]);if(optional)parts.unshift(optional);$("#outputText").textContent=parts.length?parts.join(state.language==="zh"?"，":", ")+(state.language==="zh"?"。":"."):"从左侧词库选择词条，这里会自动组合。"}
+    function toast(message){$("#toast").textContent=message;$("#toast").classList.add("show");setTimeout(()=>$("#toast").classList.remove("show"),1200)}
+    $$(".category").forEach(button=>button.onclick=()=>{state.category=button.dataset.category;$$(".category").forEach(item=>item.classList.toggle("active",item===button));$("#catalogTitle").textContent=state.category==="全部"?"灵感词库":`${state.category}灵感`;$("#starterSection").style.display=state.category==="全部"?"block":"none";$("#sectionTitle").textContent=state.category==="全部"?"浏览全部灵感":`${state.category}词条`;renderWords()});
+    $$(".filter").forEach(button=>button.onclick=()=>{state.filter=button.dataset.filter;$$(".filter").forEach(item=>item.classList.toggle("active",item===button));renderWords()});
+    $("#search").oninput=event=>{state.query=event.target.value.trim().toLowerCase();renderWords()};
+    $$(".starter").forEach(button=>button.onclick=()=>{starterSets[button.dataset.starter].forEach(id=>state.selected.add(id));renderWords();renderBasket();toast(`已加入「${button.dataset.starter}」`)});
+    $("#clear").onclick=()=>{state.selected.clear();renderWords();renderBasket()};
+    $("#optionalIdea").oninput=renderOutput;
+    $$("#languages button").forEach(button=>button.onclick=()=>{state.language=button.dataset.language;$$("#languages button").forEach(item=>item.classList.toggle("active",item===button));renderOutput()});
+    $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText($("#outputText").innerText)}catch{}toast("提示词已复制")};
+    $("#polish").onclick=()=>toast("AI 润色是可选能力，不影响词库拼装");
+    $("#shuffle").onclick=()=>{words.push(...words.splice(0,3));renderWords()};
+    $$("#mediaMode button").forEach(button=>button.onclick=()=>{$$("#mediaMode button").forEach(item=>item.classList.toggle("active",item===button));toast(`已切换到${button.textContent}词库`)});
+    $("#basketToggle").onclick=()=>$("#basket").classList.toggle("open");
+    document.addEventListener("keydown",event=>{if(event.ctrlKey&&event.key.toLowerCase()==="k"){event.preventDefault();$("#search").focus()}if(event.key==="Escape")$("#basket").classList.remove("open")});
+    renderWords();renderBasket();
   </script>
 </body>
 </html>
