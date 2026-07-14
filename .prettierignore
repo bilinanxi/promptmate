@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+prompt-assistant-prototype.html
+2026-*.md
+LICENSE
