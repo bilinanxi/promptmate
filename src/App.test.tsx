@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { App } from './App'
@@ -9,6 +9,8 @@ describe('PromptMate workspace', () => {
 
     expect(screen.getByRole('heading', { name: '灵感词库' })).toBeVisible()
     expect(screen.getByRole('button', { name: /年轻女性/ })).toBeVisible()
+    expect(screen.getByText('适合人像、时尚和叙事画面的通用主体。')).toBeVisible()
+    expect(within(screen.getByRole('main')).getAllByText('内置精选')).toHaveLength(12)
     expect(screen.getByText('灵感篮')).toBeVisible()
   })
 

@@ -10,12 +10,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings=0",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,js,ts,html}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,js,ts,html}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"resources/**/*.json\" \"*.{json,js,ts,html}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"resources/**/*.json\" \"*.{json,js,ts,html}\"",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
+    "ajv": "8.20.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { promptConcepts, type PromptConcept, type PromptSource } from './data/prompts'
+import { builtinPrompts as promptConcepts } from './features/prompt-library/builtinPrompts'
+import type { PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
 const sourceLabels: Record<PromptSource, string> = {
@@ -46,7 +47,7 @@ function PromptCard({
           {selected ? '✓' : '+'}
         </span>
       </span>
-      <span className="description">{concept.description}</span>
+      <span className="description">{concept.description_zh}</span>
       <span className={`source source-${concept.source}`}>{sourceLabels[concept.source]}</span>
     </button>
   )

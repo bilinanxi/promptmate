@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/bilinanxi/promptmate/schemas/prompt-concept.schema.json",
+  "title": "PromptMate Prompt Concept",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "zh",
+    "en",
+    "description_zh",
+    "description_en",
+    "category_id",
+    "tags",
+    "aliases_zh",
+    "aliases_en",
+    "media_types",
+    "source",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "zh": { "type": "string", "minLength": 1 },
+    "en": { "type": "string", "minLength": 1 },
+    "description_zh": { "type": "string", "minLength": 1 },
+    "description_en": { "type": "string", "minLength": 1 },
+    "category_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "aliases_zh": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "aliases_en": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "media_types": {
+      "type": "array",
+      "items": { "enum": ["image", "video"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "source": {
+      "enum": ["builtin", "user", "imported", "ai_generated"]
+    },
+    "status": {
+      "enum": ["approved", "pending", "rejected"]
+    }
+  }
+}
