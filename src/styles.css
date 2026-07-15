@@ -305,10 +305,71 @@ button:disabled {
   font-size: 12px;
 }
 
-.prompt-grid {
+.prompt-grid,
+.recent-grid,
+.template-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(170px, 1fr));
   gap: 10px;
+}
+
+.recent-card,
+.template-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e2e6ec;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.recent-card pre {
+  overflow: auto;
+  margin: 12px 0;
+  color: #334155;
+  font: 12px/1.6 inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recent-card > p,
+.template-card > p,
+.template-card li {
+  color: #687386;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.recent-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #687386;
+  font-size: 11px;
+}
+
+.template-card h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.template-card ul {
+  margin: 12px 0;
+  padding-left: 18px;
+}
+
+.recent-card > button,
+.template-card > button,
+.shuffle-button {
+  padding: 7px 11px;
+  border: 1px solid #9dbcf4;
+  border-radius: 8px;
+  color: #174ea6;
+  background: #eef4ff;
+  cursor: pointer;
+}
+
+.shuffle-button {
+  margin-left: auto;
 }
 
 .search-empty {
@@ -658,7 +719,9 @@ textarea.output-text {
     grid-template-columns: 172px 1fr 300px;
   }
 
-  .prompt-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .prompt-grid,
+  .recent-grid,
+  .template-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

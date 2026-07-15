@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { builtinPresetsByMedia } from './features/prompt-library/builtinPresets'
 import { builtinPromptsByMedia } from './features/prompt-library/builtinPrompts'
 import { filterPrompts } from './features/prompt-library/filterPrompts'
 import {
@@ -6,6 +7,12 @@ import {
   makeFavoriteKey,
   saveFavoriteKeys,
 } from './features/prompt-library/favoriteStorage'
+import {
+  addRecentUsage,
+  loadRecentUsage,
+  saveRecentUsage,
+  type RecentUsageRecord,
+} from './features/prompt-library/recentUsageStorage'
 import type { MediaType, PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
@@ -22,7 +29,6 @@ const libraryNavigation: Record<
 > = {
   image: {
     categories: [
-      { label: '为你推荐' },
       { id: 'people-subjects', label: '人物主体' },
       { id: 'scene-environment', label: '场景环境' },
       { id: 'action-pose', label: '动作姿态' },
@@ -35,7 +41,6 @@ const libraryNavigation: Record<
   },
   video: {
     categories: [
-      { label: '为你推荐' },
       { id: 'camera-movement', label: '镜头运动' },
       { id: 'subject-motion', label: '主体运动' },
       { id: 'time-transition', label: '时间与转场' },
@@ -43,6 +48,11 @@ const libraryNavigation: Record<
     ],
     tags: ['运镜', '电影感', '人物', '转场', '自然', '商业'],
   },
+}
+
+const knownPromptIds = {
+  image: new Set(builtinPromptsByMedia.image.map(({ id }) => id)),
+  video: new Set(builtinPromptsByMedia.video.map(({ id }) => id)),
 }
 
 const knownFavoriteKeys = new Set(
@@ -57,6 +67,20 @@ function loadFavorites() {
   } catch {
     return []
   }
+}
+
+function loadRecent() {
+  try {
+    return loadRecentUsage(window.localStorage, knownPromptIds)
+  } catch {
+    return []
+  }
+}
+
+function formatUsedAt(timestamp: number) {
+  const date = new Date(timestamp)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function PromptCard({
@@ -109,7 +133,11 @@ function PromptCard({
 export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
   const [favoriteIds, setFavoriteIds] = useState<string[]>(loadFavorites)
-  const [libraryView, setLibraryView] = useState<'browse' | 'favorites'>('browse')
+  const [recentUsage, setRecentUsage] = useState<RecentUsageRecord[]>(loadRecent)
+  const [libraryView, setLibraryView] = useState<
+    'all' | 'favorites' | 'recent' | 'templates' | 'recommended'
+  >('all')
+  const [recommendationOffset, setRecommendationOffset] = useState(0)
   const [{ selectedIds, undoSelection }, setBasket] = useState<{
     selectedIds: string[]
     undoSelection: string[] | null
@@ -123,6 +151,8 @@ export function App() {
   const [source, setSource] = useState<PromptSource>()
   const searchInput = useRef<HTMLInputElement>(null)
   const copyAttempt = useRef(0)
+  const recentSequence = useRef(0)
+  const preserveEditedOutput = useRef(false)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const promptConcepts = builtinPromptsByMedia[mediaType]
   const { categories, tags } = libraryNavigation[mediaType]
@@ -137,10 +167,21 @@ export function App() {
   const favoritePrompts = promptConcepts.filter((concept) =>
     favoriteIds.includes(makeFavoriteKey(mediaType, concept.id)),
   )
-  const visibleFavoritePrompts = visiblePrompts.filter((concept) =>
-    favoriteIds.includes(makeFavoriteKey(mediaType, concept.id)),
+  const recentForMedia = recentUsage.filter((record) => record.mediaType === mediaType)
+  const presets = builtinPresetsByMedia[mediaType]
+  const recommendationSize = mediaType === 'image' ? 6 : 4
+  const recommendedPrompts = promptConcepts.slice(
+    recommendationOffset,
+    recommendationOffset + recommendationSize,
   )
-  const displayedPrompts = libraryView === 'favorites' ? visibleFavoritePrompts : visiblePrompts
+  const displayedPrompts =
+    libraryView === 'favorites'
+      ? visiblePrompts.filter((concept) =>
+          favoriteIds.includes(makeFavoriteKey(mediaType, concept.id)),
+        )
+      : libraryView === 'recommended'
+        ? recommendedPrompts
+        : visiblePrompts
   const hasActiveFilters = Boolean(categoryId || tag || source)
   const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
   const selected = selectedIds
@@ -153,7 +194,11 @@ export function App() {
     : ''
 
   useEffect(() => {
-    setEditedOutput(null)
+    if (preserveEditedOutput.current) {
+      preserveEditedOutput.current = false
+    } else {
+      setEditedOutput(null)
+    }
     copyAttempt.current += 1
     if (feedbackTimer.current) {
       clearTimeout(feedbackTimer.current)
@@ -172,8 +217,28 @@ export function App() {
 
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
-      await navigator.clipboard.writeText(editedOutput ?? output)
+      const copiedText = editedOutput ?? output
+      await navigator.clipboard.writeText(copiedText)
       if (attempt !== copyAttempt.current) return
+      const usedAt = Date.now()
+      let recentId: string
+      do {
+        recentId = `${mediaType}-${usedAt}-${recentSequence.current++}`
+      } while (recentUsage.some((record) => record.id === recentId))
+      const nextRecent = addRecentUsage(recentUsage, {
+        id: recentId,
+        mediaType,
+        promptIds: [...selectedIds],
+        language,
+        copiedText,
+        usedAt,
+      })
+      try {
+        saveRecentUsage(window.localStorage, nextRecent)
+      } catch {
+        // Keep recent usage available in memory when storage access is blocked.
+      }
+      setRecentUsage(nextRecent)
       setCopyFeedback('success')
       feedbackTimer.current = setTimeout(() => {
         if (attempt === copyAttempt.current) setCopyFeedback('idle')
@@ -200,6 +265,22 @@ export function App() {
       if (next === current.selectedIds) return current
       return { selectedIds: next, undoSelection: current.selectedIds }
     })
+  }
+
+  function replaceBasket(ids: readonly string[]) {
+    mutateBasket(() => [...ids])
+  }
+
+  function applyPreset(promptIds: readonly string[]) {
+    replaceBasket(promptIds)
+    setEditedOutput(null)
+  }
+
+  function reuseRecent(record: RecentUsageRecord) {
+    preserveEditedOutput.current = true
+    replaceBasket(record.promptIds)
+    setLanguage(record.language)
+    setEditedOutput(record.copiedText)
   }
 
   function toggleConcept(id: string) {
@@ -250,13 +331,19 @@ export function App() {
 
   function browseAll() {
     clearCriteria()
-    setLibraryView('browse')
+    setLibraryView('all')
+  }
+
+  function showAllWithCriteria() {
+    setLibraryView((current) => (current === 'favorites' ? current : 'all'))
   }
 
   function switchMedia(nextMediaType: MediaType) {
     if (nextMediaType === mediaType) return
     setMediaType(nextMediaType)
+    setLibraryView('all')
     setBasket({ selectedIds: [], undoSelection: null })
+    setRecommendationOffset(0)
     clearCriteria()
   }
 
@@ -297,9 +384,15 @@ export function App() {
             aria-label="搜索提示词"
             placeholder="搜索人物、场景、风格、镜头……"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              showAllWithCriteria()
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') setQuery('')
+              if (event.key === 'Escape') {
+                setQuery('')
+                showAllWithCriteria()
+              }
             }}
           />
           <kbd>Ctrl K</kbd>
@@ -329,12 +422,24 @@ export function App() {
           <p className="sidebar-title">浏览词库</p>
           <button
             type="button"
-            className={`category${libraryView === 'browse' && !hasActiveCriteria ? ' active' : ''}`}
-            aria-pressed={libraryView === 'browse' && !hasActiveCriteria}
+            className={`category${libraryView === 'all' && !hasActiveCriteria ? ' active' : ''}`}
+            aria-pressed={libraryView === 'all' && !hasActiveCriteria}
             onClick={browseAll}
           >
             <span aria-hidden="true">⌂</span>
             浏览全部灵感
+          </button>
+          <button
+            type="button"
+            className={`category${libraryView === 'recommended' ? ' active' : ''}`}
+            aria-pressed={libraryView === 'recommended'}
+            onClick={() => {
+              clearCriteria()
+              setLibraryView('recommended')
+            }}
+          >
+            <span aria-hidden="true">✦</span>
+            为你推荐
           </button>
           <button
             type="button"
@@ -352,18 +457,46 @@ export function App() {
               {favoritePrompts.length}
             </span>
           </button>
-          {categories.map((category, index) => (
+          <button
+            type="button"
+            className={`category${libraryView === 'recent' ? ' active' : ''}`}
+            aria-pressed={libraryView === 'recent'}
+            aria-label={`最近使用，${recentForMedia.length} 条`}
+            onClick={() => {
+              clearCriteria()
+              setLibraryView('recent')
+            }}
+          >
+            <span aria-hidden="true">◷</span>
+            最近使用
+            <span className="nav-count" aria-hidden="true">
+              {recentForMedia.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`category${libraryView === 'templates' ? ' active' : ''}`}
+            aria-pressed={libraryView === 'templates'}
+            onClick={() => {
+              clearCriteria()
+              setLibraryView('templates')
+            }}
+          >
+            <span aria-hidden="true">▦</span>
+            模板组合
+          </button>
+          {categories.map((category) => (
             <button
               key={category.label}
               type="button"
-              className={`category${libraryView === 'browse' && categoryId === category.id ? ' active' : ''}`}
-              aria-pressed={libraryView === 'browse' && categoryId === category.id}
+              className={`category${libraryView === 'all' && categoryId === category.id ? ' active' : ''}`}
+              aria-pressed={libraryView === 'all' && categoryId === category.id}
               onClick={() => {
-                setLibraryView('browse')
+                setLibraryView('all')
                 setCategoryId(category.id)
               }}
             >
-              <span aria-hidden="true">{index === 0 ? '✦' : category.label[0]}</span>
+              <span aria-hidden="true">{category.label[0]}</span>
               {category.label}
             </button>
           ))}
@@ -375,7 +508,10 @@ export function App() {
               type="button"
               className={`source-filter${source === value ? ' active' : ''}`}
               aria-pressed={source === value}
-              onClick={() => setSource((current) => (current === value ? undefined : value))}
+              onClick={() => {
+                setLibraryView('all')
+                setSource((current) => (current === value ? undefined : value))
+              }}
             >
               <i className={`source-dot source-${value}`} />
               {label}
@@ -386,22 +522,46 @@ export function App() {
         <main className="catalog">
           <div className="catalog-heading">
             <div>
-              <h1>{libraryView === 'favorites' ? '我的收藏' : '灵感词库'}</h1>
+              <h1>
+                {libraryView === 'favorites'
+                  ? '我的收藏'
+                  : libraryView === 'recent'
+                    ? '最近使用'
+                    : libraryView === 'templates'
+                      ? '模板组合'
+                      : libraryView === 'recommended'
+                        ? '为你推荐'
+                        : '灵感词库'}
+              </h1>
               <p>
                 {libraryView === 'favorites'
                   ? `只显示当前${mediaType === 'image' ? '图片' : '视频'}类型的收藏。`
-                  : '不必先想好答案，看到喜欢的就把它加入灵感篮。'}
+                  : libraryView === 'recent'
+                    ? '找回成功复制过的完整提示词，包括当时的手动修改。'
+                    : libraryView === 'templates'
+                      ? '用经过策划的组合快速开始，再按需要继续调整。'
+                      : libraryView === 'recommended'
+                        ? '从当前词库中挑选一组灵感，换一批可查看另一半。'
+                        : '不必先想好答案，看到喜欢的就把它加入灵感篮。'}
               </p>
             </div>
             <span>
               {libraryView === 'favorites'
-                ? `${favoritePrompts.length} 个收藏`
-                : hasActiveCriteria
-                  ? `找到 ${visiblePrompts.length} 个词条`
-                  : `正在展示 ${promptConcepts.length} 个精选词条`}
+                ? hasActiveCriteria
+                  ? `${displayedPrompts.length} 个词条`
+                  : `${favoritePrompts.length} 个收藏`
+                : libraryView === 'recent'
+                  ? `${recentForMedia.length} 条记录`
+                  : libraryView === 'templates'
+                    ? `${presets.length} 个模板`
+                    : libraryView === 'recommended'
+                      ? `${recommendedPrompts.length} 个推荐`
+                      : hasActiveCriteria
+                        ? `找到 ${visiblePrompts.length} 个词条`
+                        : `正在展示 ${promptConcepts.length} 个精选词条`}
             </span>
           </div>
-          {libraryView === 'browse' ? (
+          {libraryView === 'all' ? (
             <div className="filter-row" aria-label="推荐筛选">
               {tagFilters.map((filter) => (
                 <button
@@ -409,7 +569,10 @@ export function App() {
                   type="button"
                   className={`filter-pill${tag === filter.tag ? ' active' : ''}`}
                   aria-pressed={tag === filter.tag}
-                  onClick={() => setTag(filter.tag)}
+                  onClick={() => {
+                    setLibraryView('all')
+                    setTag(filter.tag)
+                  }}
                 >
                   {filter.label}
                 </button>
@@ -419,48 +582,125 @@ export function App() {
           <section aria-labelledby="browse-title">
             <div className="section-heading">
               <h2 id="browse-title">
-                {libraryView === 'favorites' ? '已收藏灵感' : '浏览全部灵感'}
+                {libraryView === 'favorites'
+                  ? '已收藏灵感'
+                  : libraryView === 'recent'
+                    ? '复制历史'
+                    : libraryView === 'templates'
+                      ? '精选模板'
+                      : libraryView === 'recommended'
+                        ? '本批推荐'
+                        : '浏览全部灵感'}
               </h2>
-              <span>{displayedPrompts.length} 个词条</span>
+              {libraryView === 'recommended' ? (
+                <button
+                  type="button"
+                  className="shuffle-button"
+                  onClick={() =>
+                    setRecommendationOffset((current) => (current === 0 ? recommendationSize : 0))
+                  }
+                >
+                  换一批
+                </button>
+              ) : null}
             </div>
-            <div className="prompt-grid">
-              {displayedPrompts.length ? (
-                displayedPrompts.map((concept) => (
-                  <PromptCard
-                    key={concept.id}
-                    concept={concept}
-                    selected={selectedIds.includes(concept.id)}
-                    favorite={favoriteIds.includes(makeFavoriteKey(mediaType, concept.id))}
-                    onToggle={() => toggleConcept(concept.id)}
-                    onToggleFavorite={() => toggleFavorite(concept.id)}
-                  />
-                ))
-              ) : libraryView === 'favorites' && favoritePrompts.length === 0 ? (
-                <div className="search-empty">
-                  <strong>还没有收藏{mediaType === 'image' ? '图片' : '视频'}提示词</strong>
-                  <p>浏览词库并点击星标，把常用灵感保存在这里。</p>
-                  <button type="button" onClick={browseAll}>
-                    浏览全部灵感
-                  </button>
-                </div>
-              ) : libraryView === 'favorites' ? (
-                <div className="search-empty">
-                  <strong>没有找到匹配的收藏</strong>
-                  <p>试试名称、别名、标签、分类或英文关键词。</p>
-                  <button type="button" onClick={clearCriteria}>
-                    {hasActiveFilters ? '清除全部筛选' : '清除搜索'}
-                  </button>
-                </div>
-              ) : (
-                <div className="search-empty">
-                  <strong>没有找到匹配的词条</strong>
-                  <p>试试名称、别名、标签、分类或英文关键词。</p>
-                  <button type="button" onClick={clearCriteria}>
-                    {hasActiveFilters ? '清除全部筛选' : '清除搜索'}
-                  </button>
-                </div>
-              )}
-            </div>
+            {libraryView === 'recent' ? (
+              <div className="recent-grid">
+                {recentForMedia.length ? (
+                  recentForMedia.map((record) => {
+                    const names = record.promptIds
+                      .map((id) => promptConcepts.find((concept) => concept.id === id)?.zh)
+                      .filter((name): name is string => Boolean(name))
+                    return (
+                      <article className="recent-card" key={record.id}>
+                        <div className="recent-meta">
+                          <time dateTime={new Date(record.usedAt).toISOString()}>
+                            {formatUsedAt(record.usedAt)}
+                          </time>
+                          <span>{record.language === 'zh' ? '中文' : 'English'}</span>
+                        </div>
+                        <pre>{record.copiedText}</pre>
+                        <p>{names.join(' · ')}</p>
+                        <button
+                          type="button"
+                          aria-label={`再次使用 ${record.copiedText.replace(/\s+/g, ' ')}`}
+                          onClick={() => reuseRecent(record)}
+                        >
+                          再次使用
+                        </button>
+                      </article>
+                    )
+                  })
+                ) : (
+                  <div className="search-empty">
+                    <strong>还没有最近使用记录</strong>
+                    <p>成功复制提示词后，会在这里保留当时的组合与编辑内容。</p>
+                    <button type="button" onClick={browseAll}>
+                      浏览全部灵感
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : libraryView === 'templates' ? (
+              <div className="template-grid">
+                {presets.map((preset) => {
+                  const names = preset.promptIds.map(
+                    (id) => promptConcepts.find((concept) => concept.id === id)?.zh ?? id,
+                  )
+                  return (
+                    <article className="template-card" key={preset.id}>
+                      <h3>{preset.title}</h3>
+                      <p>{preset.description}</p>
+                      <ul>
+                        {names.map((name) => (
+                          <li key={name}>{name}</li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        aria-label={`使用模板 ${preset.title}`}
+                        onClick={() => applyPreset(preset.promptIds)}
+                      >
+                        使用模板
+                      </button>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="prompt-grid">
+                {displayedPrompts.length ? (
+                  displayedPrompts.map((concept) => (
+                    <PromptCard
+                      key={concept.id}
+                      concept={concept}
+                      selected={selectedIds.includes(concept.id)}
+                      favorite={favoriteIds.includes(makeFavoriteKey(mediaType, concept.id))}
+                      onToggle={() => toggleConcept(concept.id)}
+                      onToggleFavorite={() => toggleFavorite(concept.id)}
+                    />
+                  ))
+                ) : libraryView === 'favorites' && favoritePrompts.length === 0 ? (
+                  <div className="search-empty">
+                    <strong>还没有收藏{mediaType === 'image' ? '图片' : '视频'}提示词</strong>
+                    <p>浏览词库并点击星标，把常用灵感保存在这里。</p>
+                    <button type="button" onClick={browseAll}>
+                      浏览全部灵感
+                    </button>
+                  </div>
+                ) : (
+                  <div className="search-empty">
+                    <strong>
+                      {libraryView === 'favorites' ? '没有找到匹配的收藏' : '没有找到匹配的词条'}
+                    </strong>
+                    <p>试试名称、别名、标签、分类或英文关键词。</p>
+                    <button type="button" onClick={clearCriteria}>
+                      {hasActiveFilters ? '清除全部筛选' : '清除搜索'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         </main>
 

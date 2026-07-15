@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { FAVORITES_STORAGE_KEY } from './features/prompt-library/favoriteStorage'
+import { RECENT_USAGE_STORAGE_KEY } from './features/prompt-library/recentUsageStorage'
 
 const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
 
@@ -299,6 +300,7 @@ describe('PromptMate workspace', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('复制失败')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
 
     await user.click(copyButton)
     expect(writeText).toHaveBeenCalledTimes(2)
@@ -316,6 +318,29 @@ describe('PromptMate workspace', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('复制失败')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
+  })
+
+  it('adds recent usage only when a pending clipboard promise resolves successfully', async () => {
+    let resolveCopy!: () => void
+    const writeText = vi.fn<(text: string) => Promise<void>>(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCopy = resolve
+        }),
+    )
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    fireEvent.click(screen.getByRole('button', { name: '复制提示词' }))
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
+    expect(localStorage.getItem(RECENT_USAGE_STORAGE_KEY)).toBeNull()
+
+    await act(async () => resolveCopy())
+    expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
+    expect(localStorage.getItem(RECENT_USAGE_STORAGE_KEY)).toContain('年轻女性。')
   })
 
   it('ignores a pending clipboard completion after unmounting', async () => {
@@ -333,12 +358,14 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
     await user.click(screen.getByRole('button', { name: '复制提示词' }))
     expect(writeText).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
     unmount()
 
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
     await act(async () => resolveCopy())
 
     expect(setTimeoutSpy).not.toHaveBeenCalled()
+    expect(localStorage.getItem(RECENT_USAGE_STORAGE_KEY)).toBeNull()
   })
 
   it('clears stale copy feedback when the result is edited or regenerated', async () => {
@@ -584,7 +611,7 @@ describe('PromptMate workspace', () => {
     expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
   })
 
-  it('filters the library by category and restores all recommendations', async () => {
+  it('filters the library by category and restores all prompts through browse all', async () => {
     const user = userEvent.setup()
     render(<App />)
 
@@ -596,7 +623,7 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: '场景环境' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('找到 2 个词条')).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: '为你推荐' }))
+    await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
 
     expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
     expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
@@ -648,9 +675,86 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: /^缓慢推进镜头，/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^年轻女性，/ })).not.toBeInTheDocument()
     expect(screen.getByRole('searchbox', { name: '搜索提示词' })).toHaveValue('')
-    expect(screen.getByRole('button', { name: '为你推荐' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '浏览全部灵感' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
     expect(screen.getByRole('button', { name: '视频' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shuffles through disjoint recommendation halves without changing basket or favorites', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '为你推荐' }))
+    expect(
+      within(screen.getByRole('main')).getAllByRole('button', { name: /加入灵感篮/ }),
+    ).toHaveLength(6)
+    expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /^柔和侧逆光，/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    await user.click(screen.getByRole('button', { name: '收藏 年轻女性' }))
+    await user.click(screen.getByRole('button', { name: '换一批' }))
+
+    expect(
+      within(screen.getByRole('main')).getAllByRole('button', { name: /加入灵感篮/ }),
+    ).toHaveLength(6)
+    expect(screen.queryByRole('button', { name: /^年轻女性，/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^柔和侧逆光，/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '我的收藏，1 个' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '换一批' }))
+    expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: '取消收藏 年轻女性' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('shows four recommendations in each disjoint video batch', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '视频' }))
+    await user.click(screen.getByRole('button', { name: '为你推荐' }))
+    expect(
+      within(screen.getByRole('main')).getAllByRole('button', { name: /加入灵感篮/ }),
+    ).toHaveLength(4)
+    expect(screen.getByRole('button', { name: /^缓慢推进镜头，/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /^日景渐变夜景，/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '换一批' }))
+    expect(
+      within(screen.getByRole('main')).getAllByRole('button', { name: /加入灵感篮/ }),
+    ).toHaveLength(4)
+    expect(screen.queryByRole('button', { name: /^缓慢推进镜头，/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^日景渐变夜景，/ })).toBeVisible()
+  })
+
+  it('resets recommendations and exposes one truthful all-navigation state after a media switch', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '为你推荐' }))
+    await user.click(screen.getByRole('button', { name: '换一批' }))
+    await user.click(screen.getByRole('button', { name: '视频' }))
+
+    expect(screen.getByRole('button', { name: '浏览全部灵感' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: '为你推荐' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    expect(screen.getByText('正在展示 8 个精选词条')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '为你推荐' }))
+    expect(screen.getByRole('button', { name: /^缓慢推进镜头，/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /^日景渐变夜景，/ })).not.toBeInTheDocument()
   })
 
   it('clears undo history when switching media libraries', async () => {
@@ -690,12 +794,304 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: '清除全部筛选' }))
 
     expect(search).toHaveValue('')
-    expect(screen.getByRole('button', { name: '为你推荐' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '浏览全部灵感' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
     expect(screen.getByRole('button', { name: '全部' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '我的词条' })).toHaveAttribute(
       'aria-pressed',
       'false',
     )
     expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+  })
+
+  it('keeps all top-level library navigation states mutually exclusive', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const navigation = within(screen.getByRole('navigation', { name: '提示词分类' }))
+    const topLevelNames = [
+      '浏览全部灵感',
+      '为你推荐',
+      '我的收藏，0 个',
+      '最近使用，0 条',
+      '模板组合',
+    ]
+    const expectOnlyPressed = (name: string) => {
+      for (const candidate of topLevelNames) {
+        expect(navigation.getByRole('button', { name: candidate })).toHaveAttribute(
+          'aria-pressed',
+          candidate === name ? 'true' : 'false',
+        )
+      }
+    }
+
+    expectOnlyPressed('浏览全部灵感')
+    for (const name of topLevelNames.slice(1)) {
+      await user.click(navigation.getByRole('button', { name }))
+      expectOnlyPressed(name)
+    }
+  })
+
+  it('switches search from recent, templates, and recommendations to all', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const search = screen.getByRole('searchbox', { name: '搜索提示词' })
+
+    for (const view of ['最近使用，0 条', '模板组合', '为你推荐']) {
+      await user.click(screen.getByRole('button', { name: view }))
+      await user.type(search, '女性')
+      expect(screen.getByRole('heading', { name: '灵感词库' })).toBeVisible()
+      expect(screen.getByRole('button', { name: '浏览全部灵感' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+      await user.clear(search)
+    }
+  })
+
+  it('uses a visible media template in declared order and keeps unrelated state unchanged', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^霓虹雨夜街道，/ }))
+    await user.click(screen.getByRole('button', { name: '收藏 年轻女性' }))
+    await user.click(screen.getByRole('button', { name: 'EN' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '编辑拼装结果' }), {
+      target: { value: 'manual before template' },
+    })
+    await user.click(screen.getByRole('button', { name: '模板组合' }))
+
+    expect(screen.getByRole('heading', { name: '电影感人像' })).toBeVisible()
+    expect(screen.getByText('年轻女性', { selector: 'li' })).toBeVisible()
+    expect(screen.getByText('柔和侧逆光', { selector: 'li' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '使用模板 电影感人像' }))
+
+    expect(
+      screen.getAllByRole('button', { name: /从灵感篮移除/ }).map((button) => button.textContent),
+    ).toEqual([
+      expect.stringContaining('年轻女性'),
+      expect.stringContaining('柔和侧逆光'),
+      expect.stringContaining('中近景'),
+      expect.stringContaining('克制的电影感'),
+    ])
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
+      'young woman, soft rim lighting, medium close-up, restrained cinematic style.',
+    )
+    expect(screen.getByRole('button', { name: '我的收藏，1 个' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
+      'neon-lit rainy street.',
+    )
+  })
+
+  it('shows only the real presets declared for the active media type', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '模板组合' }))
+    expect(screen.getAllByRole('button', { name: /^使用模板/ })).toHaveLength(3)
+    expect(screen.getByRole('heading', { name: '东方庭院' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '角色入场' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '视频' }))
+    await user.click(screen.getByRole('button', { name: '模板组合' }))
+    expect(screen.getAllByRole('button', { name: /^使用模板/ })).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: '角色入场' })).toBeVisible()
+    expect(screen.getByText('缓慢推进镜头', { selector: 'li' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '东方庭院' })).not.toBeInTheDocument()
+  })
+
+  it('restores an exact recent composition without the synchronization effect overwriting it', async () => {
+    const exactText = '  exact manual\n保留文本  '
+    localStorage.setItem(
+      RECENT_USAGE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        records: [
+          {
+            id: 'restored-image',
+            mediaType: 'image',
+            promptIds: ['neon-rain', 'young-woman'],
+            language: 'en',
+            copiedText: exactText,
+            usedAt: 100,
+          },
+        ],
+      }),
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    await user.click(screen.getByRole('button', { name: '收藏 年轻女性' }))
+    await user.click(screen.getByRole('button', { name: '最近使用，1 条' }))
+    await user.click(screen.getByRole('button', { name: /再次使用.*exact manual 保留文本/ }))
+
+    expect(
+      screen.getAllByRole('button', { name: /从灵感篮移除/ }).map((button) => button.textContent),
+    ).toEqual([expect.stringContaining('霓虹雨夜街道'), expect.stringContaining('年轻女性')])
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(exactText)
+    expect(screen.getByRole('button', { name: 'EN' })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: '我的收藏，1 个' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue('young woman.')
+  })
+
+  it('avoids generated recent IDs that collide with persisted records after remount', async () => {
+    localStorage.setItem(
+      RECENT_USAGE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        records: [
+          {
+            id: 'image-1000-0',
+            mediaType: 'image',
+            promptIds: ['young-woman'],
+            language: 'zh',
+            copiedText: 'older text',
+            usedAt: 999,
+          },
+        ],
+      }),
+    )
+    vi.spyOn(Date, 'now').mockReturnValue(1000)
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    const firstRender = render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    firstRender.unmount()
+    render(<App />)
+
+    expect(screen.getByRole('button', { name: '最近使用，2 条' })).toBeVisible()
+  })
+
+  it('keeps successful recent usage across remounts and isolates it by media type', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    const firstRender = render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    firstRender.unmount()
+    render(<App />)
+
+    expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '视频' }))
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '图片' }))
+    expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
+  })
+
+  it('starts safely and keeps successful recent usage in memory when the localStorage getter throws', async () => {
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new DOMException('blocked', 'SecurityError')
+      },
+    })
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+
+    try {
+      expect(() => render(<App />)).not.toThrow()
+      await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+      await user.click(screen.getByRole('button', { name: '复制提示词' }))
+
+      expect(screen.getByRole('status')).toHaveTextContent('已复制到剪贴板')
+      expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, 'localStorage', localStorageDescriptor)
+      }
+    }
+  })
+
+  it('keeps the in-memory recent view usable when localStorage writes fail', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('已复制到剪贴板')
+    expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '最近使用，1 条' }))
+    expect(screen.getByText('年轻女性。', { selector: 'pre' })).toBeVisible()
+  })
+
+  it('applies exact app-level recent dedupe, newest ordering, and the twelve-record cap', async () => {
+    const records = Array.from({ length: 12 }, (_, index) => ({
+      id: `seed-${index}`,
+      mediaType: 'image',
+      promptIds: ['young-woman'],
+      language: 'zh',
+      copiedText: `text-${index}`,
+      usedAt: 100 - index,
+    }))
+    localStorage.setItem(RECENT_USAGE_STORAGE_KEY, JSON.stringify({ version: 1, records }))
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: '编辑拼装结果' }), {
+      target: { value: 'brand-new' },
+    })
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    expect(screen.getByRole('button', { name: '最近使用，12 条' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '最近使用，12 条' }))
+    expect(Array.from(document.querySelectorAll('pre'), (node) => node.textContent)[0]).toBe(
+      'brand-new',
+    )
+    expect(screen.queryByText('text-11', { selector: 'pre' })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: '编辑拼装结果' }), {
+      target: { value: 'text-5' },
+    })
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    const copiedTexts = Array.from(document.querySelectorAll('pre'), (node) => node.textContent)
+    expect(copiedTexts).toHaveLength(12)
+    expect(copiedTexts[0]).toBe('text-5')
+    expect(copiedTexts.filter((text) => text === 'text-5')).toHaveLength(1)
+  })
+
+  it('records exact edited output only after a successful copy', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+
+    expect(screen.getByRole('button', { name: '最近使用，0 条' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    fireEvent.change(editor, { target: { value: '  精确保留\nmanual text  ' } })
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+
+    expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '最近使用，1 条' }))
+    const exactText = '  精确保留\nmanual text  '
+    expect(
+      screen.getByText(
+        (_, element) => element?.tagName === 'PRE' && element.textContent === exactText,
+      ),
+    ).toBeVisible()
+    expect(screen.getAllByText('年轻女性')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: /再次使用.*精确保留 manual text/ })).toBeVisible()
   })
 })
