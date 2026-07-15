@@ -1,9 +1,176 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
+const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+
+function mockClipboard(writeText: (text: string) => Promise<void>) {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  if (originalClipboard) {
+    Object.defineProperty(navigator, 'clipboard', originalClipboard)
+  } else {
+    Reflect.deleteProperty(navigator, 'clipboard')
+  }
+})
+
 describe('PromptMate workspace', () => {
+  it('copies the exact manually edited composition including Chinese and English text', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    await user.clear(editor)
+    await user.type(editor, '年轻女性 with cinematic light — 保留空格')
+    expect(editor).toHaveValue('年轻女性 with cinematic light — 保留空格')
+    const copyButton = screen.getByRole('button', { name: '复制提示词' })
+    expect(copyButton).toBeEnabled()
+    await user.click(copyButton)
+
+    expect(writeText).toHaveBeenCalledOnce()
+    expect(writeText).toHaveBeenCalledWith('年轻女性 with cinematic light — 保留空格')
+  })
+
+  it('resets manual edits after basket mutation and language changes', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    await user.clear(editor)
+    await user.type(editor, '手动修改 manual edit')
+
+    await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
+    expect(editor).toHaveValue('年轻女性，霓虹雨夜街道。')
+
+    await user.clear(editor)
+    await user.type(editor, 'manual order edit')
+    await user.click(screen.getByRole('button', { name: '下移 年轻女性' }))
+    expect(editor).toHaveValue('霓虹雨夜街道，年轻女性。')
+
+    await user.clear(editor)
+    await user.type(editor, 'another manual edit')
+    await user.click(screen.getByRole('button', { name: 'EN' }))
+    expect(editor).toHaveValue('neon-lit rainy street, young woman.')
+  })
+
+  it('disables copy when the edited composition is only whitespace', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    await user.clear(editor)
+    await user.type(editor, '   \n  ')
+
+    expect(screen.getByRole('button', { name: '复制提示词' })).toBeDisabled()
+  })
+
+  it('announces successful copy and returns to idle after a short timeout', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    vi.useFakeTimers()
+    mockClipboard(writeText)
+    fireEvent.click(screen.getByRole('button', { name: '复制提示词' }))
+    await act(async () => Promise.resolve())
+
+    expect(screen.getByRole('status')).toHaveTextContent('已复制到剪贴板')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500)
+    })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('shows an alert after a rejected copy and succeeds on retry without false success', async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('permission denied'))
+      .mockResolvedValueOnce(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    const copyButton = screen.getByRole('button', { name: '复制提示词' })
+    await user.click(copyButton)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('复制失败')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    await user.click(copyButton)
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('已复制到剪贴板')
+  })
+
+  it('shows an error and never success when the clipboard API is unavailable', async () => {
+    const user = userEvent.setup()
+    Reflect.deleteProperty(navigator, 'clipboard')
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('复制失败')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('ignores a pending clipboard completion after unmounting', async () => {
+    let resolveCopy!: () => void
+    const writeText = vi.fn<(text: string) => Promise<void>>(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCopy = resolve
+        }),
+    )
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    const { unmount } = render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    expect(writeText).toHaveBeenCalledOnce()
+    unmount()
+
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    await act(async () => resolveCopy())
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled()
+  })
+
+  it('clears stale copy feedback when the result is edited or regenerated', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    mockClipboard(writeText)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    expect(screen.getByRole('status')).toBeVisible()
+
+    await user.type(screen.getByRole('textbox', { name: '编辑拼装结果' }), ' edited')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '复制提示词' }))
+    await user.click(screen.getByRole('button', { name: 'EN' }))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
   it('presents the prompt library as the primary workspace', () => {
     render(<App />)
 
@@ -21,7 +188,7 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: /年轻女性/ }))
 
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('1')
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue('年轻女性。')
   })
 
   it('clears a nonempty basket and undoes the clear exactly', async () => {
@@ -50,7 +217,9 @@ describe('PromptMate workspace', () => {
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('2')
     expect(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' })).toBeVisible()
     expect(screen.getByRole('button', { name: '从灵感篮移除 霓虹雨夜街道' })).toBeVisible()
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性，霓虹雨夜街道。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
+      '年轻女性，霓虹雨夜街道。',
+    )
     expect(womanCard).toHaveAttribute('aria-pressed', 'true')
     expect(streetCard).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '撤销上一步灵感篮操作' })).toBeDisabled()
@@ -70,17 +239,19 @@ describe('PromptMate workspace', () => {
 
     await user.click(screen.getByRole('button', { name: '下移 年轻女性' }))
 
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('霓虹雨夜街道，年轻女性。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
+      '霓虹雨夜街道，年轻女性。',
+    )
     expect(screen.getByRole('button', { name: '上移 霓虹雨夜街道' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '下移 年轻女性' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'EN' }))
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent(
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
       'neon-lit rainy street, young woman.',
     )
 
     await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent(
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
       'young woman, neon-lit rainy street.',
     )
   })
@@ -93,7 +264,7 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
     await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
 
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue('年轻女性。')
     expect(screen.getByRole('button', { name: /霓虹雨夜街道/ })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -104,7 +275,7 @@ describe('PromptMate workspace', () => {
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
 
     await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue('年轻女性。')
     expect(screen.getByRole('button', { name: /^年轻女性，/ })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -120,7 +291,7 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' }))
 
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('1')
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('霓虹雨夜街道。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue('霓虹雨夜街道。')
     expect(screen.getByRole('button', { name: /年轻女性/ })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -155,7 +326,9 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: 'EN' }))
     await user.click(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' }))
 
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('neon-lit rainy street.')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
+      'neon-lit rainy street.',
+    )
   })
 
   it('switches the composed prompt to English', async () => {
@@ -165,7 +338,7 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: /年轻女性/ }))
     await user.click(screen.getByRole('button', { name: 'EN' }))
 
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('young woman.')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue('young woman.')
   })
 
   it('combines multiple selected cards in library order', async () => {
@@ -176,7 +349,9 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
 
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('2')
-    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性，霓虹雨夜街道。')
+    expect(screen.getByRole('textbox', { name: '编辑拼装结果' })).toHaveValue(
+      '年轻女性，霓虹雨夜街道。',
+    )
   })
 
   it('searches names, descriptions, aliases, tags, categories, and media types', async () => {

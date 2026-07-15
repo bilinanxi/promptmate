@@ -18,12 +18,14 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 3px solid #bfdbfe;
   outline-offset: 2px;
 }
@@ -566,6 +568,7 @@ button:disabled {
 }
 
 .output-text {
+  width: 100%;
   min-height: 116px;
   display: block;
   overflow: auto;
@@ -576,6 +579,11 @@ button:disabled {
   background: #fff;
   font-size: 12px;
   line-height: 1.7;
+}
+
+textarea.output-text {
+  max-height: 220px;
+  resize: vertical;
 }
 
 .copy-button {
@@ -592,6 +600,21 @@ button:disabled {
 .offline-hint {
   margin: 9px 0 0;
   text-align: center;
+}
+
+.copy-feedback {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.copy-feedback.success {
+  color: #147d64;
+}
+
+.copy-feedback.error {
+  color: #b42318;
 }
 
 @media (max-width: 1120px) {

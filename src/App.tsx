@@ -79,11 +79,15 @@ export function App() {
     undoSelection: string[] | null
   }>({ selectedIds: [], undoSelection: null })
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
+  const [editedOutput, setEditedOutput] = useState<string | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<'idle' | 'success' | 'error'>('idle')
   const [query, setQuery] = useState('')
   const [categoryId, setCategoryId] = useState<string>()
   const [tag, setTag] = useState<string>()
   const [source, setSource] = useState<PromptSource>()
   const searchInput = useRef<HTMLInputElement>(null)
+  const copyAttempt = useRef(0)
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const promptConcepts = builtinPromptsByMedia[mediaType]
   const { categories, tags } = libraryNavigation[mediaType]
   const tagFilters: { label: string; tag?: string }[] = [
@@ -104,6 +108,48 @@ export function App() {
   const output = selected.length
     ? `${selected.map((concept) => concept[language]).join(separator)}${ending}`
     : ''
+
+  useEffect(() => {
+    setEditedOutput(null)
+    copyAttempt.current += 1
+    if (feedbackTimer.current) {
+      clearTimeout(feedbackTimer.current)
+      feedbackTimer.current = null
+    }
+    setCopyFeedback('idle')
+  }, [selectedIds, language])
+
+  async function copyOutput() {
+    const attempt = ++copyAttempt.current
+    if (feedbackTimer.current) {
+      clearTimeout(feedbackTimer.current)
+      feedbackTimer.current = null
+    }
+    setCopyFeedback('idle')
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(editedOutput ?? output)
+      if (attempt !== copyAttempt.current) return
+      setCopyFeedback('success')
+      feedbackTimer.current = setTimeout(() => {
+        if (attempt === copyAttempt.current) setCopyFeedback('idle')
+        feedbackTimer.current = null
+      }, 2000)
+    } catch {
+      if (attempt === copyAttempt.current) setCopyFeedback('error')
+    }
+  }
+
+  function editOutput(value: string) {
+    copyAttempt.current += 1
+    if (feedbackTimer.current) {
+      clearTimeout(feedbackTimer.current)
+      feedbackTimer.current = null
+    }
+    setCopyFeedback('idle')
+    setEditedOutput(value)
+  }
 
   function mutateBasket(update: (current: string[]) => string[]) {
     setBasket((current) => {
@@ -162,7 +208,14 @@ export function App() {
     }
 
     window.addEventListener('keydown', focusSearch)
-    return () => window.removeEventListener('keydown', focusSearch)
+    return () => {
+      window.removeEventListener('keydown', focusSearch)
+      copyAttempt.current += 1
+      if (feedbackTimer.current) {
+        clearTimeout(feedbackTimer.current)
+        feedbackTimer.current = null
+      }
+    }
   }, [])
 
   return (
@@ -373,12 +426,36 @@ export function App() {
                 </button>
               </div>
             </div>
-            <output className="output-text" aria-label="自动拼装结果">
-              {output || '从词库选择词条，这里会自动组合。'}
-            </output>
-            <button type="button" className="copy-button" disabled={!selected.length}>
+            {selected.length ? (
+              <textarea
+                className="output-text"
+                aria-label="编辑拼装结果"
+                value={editedOutput ?? output}
+                onChange={(event) => editOutput(event.target.value)}
+              />
+            ) : (
+              <output className="output-text" aria-label="自动拼装结果">
+                从词库选择词条，这里会自动组合。
+              </output>
+            )}
+            <button
+              type="button"
+              className="copy-button"
+              disabled={!selected.length || !(editedOutput ?? output).trim()}
+              onClick={copyOutput}
+            >
               复制提示词
             </button>
+            {copyFeedback === 'success' ? (
+              <p className="copy-feedback success" role="status" aria-live="polite">
+                已复制到剪贴板
+              </p>
+            ) : null}
+            {copyFeedback === 'error' ? (
+              <p className="copy-feedback error" role="alert">
+                复制失败，请检查剪贴板权限后重试。
+              </p>
+            ) : null}
             <p className="offline-hint">不调用 AI 也能浏览、拼装和复制</p>
           </div>
         </aside>
