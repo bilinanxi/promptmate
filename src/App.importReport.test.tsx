@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
@@ -6,7 +6,7 @@ import { USER_PROMPTS_STORAGE_KEY } from './features/prompt-library/userPromptSt
 import type { PromptConcept } from './features/prompt-library/types'
 
 const { download } = vi.hoisted(() => ({ download: vi.fn() }))
-vi.mock('./features/prompt-library/browserDownload', () => ({ browserDownload: download }))
+vi.mock('./features/prompt-library/saveTextDownload', () => ({ saveTextDownload: download }))
 
 const existing: PromptConcept = {
   schema_version: '1.0',
@@ -34,7 +34,7 @@ beforeEach(() => {
     USER_PROMPTS_STORAGE_KEY,
     JSON.stringify({ version: 2, prompts: [existing] }),
   )
-  download.mockReset()
+  download.mockReset().mockResolvedValue('saved')
 })
 
 describe('import error report UI', () => {
@@ -98,9 +98,7 @@ describe('import error report UI', () => {
   })
 
   it('keeps the preview retryable when the download adapter throws', async () => {
-    download.mockImplementation(() => {
-      throw new Error('download blocked')
-    })
+    download.mockRejectedValue(new Error('download blocked'))
     const user = userEvent.setup()
     render(<App />)
     await openDialog(user)
@@ -134,5 +132,38 @@ describe('import error report UI', () => {
     expect(within(issueList).getAllByRole('listitem')).toHaveLength(100)
     await user.click(within(dialog).getByRole('button', { name: '下载导入报告' }))
     expect(JSON.parse(download.mock.calls[0][0].content).parser_issues).toHaveLength(101)
+  })
+
+  it('allows only one report save and ignores its rejection after the dialog closes', async () => {
+    let rejectSave!: (error: Error) => void
+    download.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectSave = reject
+      }),
+    )
+    const user = userEvent.setup()
+    render(<App />)
+    await openDialog(user)
+    let dialog = screen.getByRole('dialog', { name: '导入与导出' })
+    await user.upload(
+      within(dialog).getByLabelText('选择 JSONL 文件'),
+      new File(['{bad}\n'], 'pending.jsonl'),
+    )
+    const report = await within(dialog).findByRole('button', { name: '下载导入报告' })
+    await user.click(report)
+
+    expect(report).toBeDisabled()
+    await user.click(report)
+    expect(download).toHaveBeenCalledOnce()
+
+    await user.click(within(dialog).getByRole('button', { name: '取消' }))
+    await openDialog(user)
+    dialog = screen.getByRole('dialog', { name: '导入与导出' })
+    await act(async () => {
+      rejectSave(new Error('late failure'))
+      await Promise.resolve()
+    })
+
+    expect(within(dialog).queryByText('导入报告下载失败，请重试。')).not.toBeInTheDocument()
   })
 })

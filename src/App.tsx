@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { browserDownload } from './features/prompt-library/browserDownload'
+
 import { builtinPresetsByMedia } from './features/prompt-library/builtinPresets'
 import { builtinPromptsByMedia } from './features/prompt-library/builtinPrompts'
 import { filterPrompts } from './features/prompt-library/filterPrompts'
@@ -37,6 +37,7 @@ import {
   makeImportReportFileName,
   serializeImportReport,
 } from './features/prompt-library/serializeImportReport'
+import { saveTextDownload } from './features/prompt-library/saveTextDownload'
 import {
   MAX_USER_PROMPTS,
   loadUserPrompts,
@@ -334,6 +335,9 @@ export function App() {
   const [exportSourceScope, setExportSourceScope] = useState<ExportSourceScope>('all')
   const [exportFormat, setExportFormat] = useState<'jsonl' | 'package' | 'csv'>('jsonl')
   const [exportError, setExportError] = useState('')
+  const [exportFeedback, setExportFeedback] = useState('')
+  const [exportSaving, setExportSaving] = useState(false)
+  const [reportSaving, setReportSaving] = useState(false)
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>('skip')
   const [importError, setImportError] = useState('')
@@ -385,6 +389,10 @@ export function App() {
   const importInitialFocus = useRef<HTMLInputElement>(null)
   const importSelection = useRef(0)
   const importReader = useRef<FileReader | null>(null)
+  const exportSaveAttempt = useRef(0)
+  const exportSavePending = useRef(false)
+  const reportSaveAttempt = useRef(0)
+  const reportSavePending = useRef(false)
   const deleteDialog = useRef<HTMLElement>(null)
   const deleteInitialFocus = useRef<HTMLButtonElement>(null)
   const copyAttempt = useRef(0)
@@ -397,6 +405,10 @@ export function App() {
       importSelection.current += 1
       importReader.current?.abort()
       importReader.current = null
+      exportSaveAttempt.current += 1
+      reportSaveAttempt.current += 1
+      exportSavePending.current = false
+      reportSavePending.current = false
     },
     [],
   )
@@ -658,12 +670,19 @@ export function App() {
     importSelection.current += 1
     importReader.current?.abort()
     importReader.current = null
+    exportSaveAttempt.current += 1
+    reportSaveAttempt.current += 1
+    exportSavePending.current = false
+    reportSavePending.current = false
     setImportOpen(false)
     setTransferTab('import')
     setExportMediaScope('current')
     setExportSourceScope('all')
     setExportFormat('jsonl')
     setExportError('')
+    setExportFeedback('')
+    setExportSaving(false)
+    setReportSaving(false)
     setImportPreview(null)
     setImportPolicy('skip')
     setImportError('')
@@ -706,8 +725,11 @@ export function App() {
     }
   }
 
-  function downloadExport() {
-    if (!exportPrompts.length) return
+  async function downloadExport() {
+    if (!exportPrompts.length || exportSavePending.current) return
+    const attempt = ++exportSaveAttempt.current
+    exportSavePending.current = true
+    setExportSaving(true)
     const mediaName = exportMediaScope === 'current' ? mediaType : 'all'
     const extension =
       exportFormat === 'jsonl' ? 'jsonl' : exportFormat === 'csv' ? 'csv' : 'promptmate.json'
@@ -718,7 +740,7 @@ export function App() {
           ? serializePromptCsv(exportPrompts)
           : serializePromptPackage(exportPrompts)
     try {
-      browserDownload({
+      const result = await saveTextDownload({
         content,
         fileName: `promptmate-${mediaName}-${exportSourceScope}.${extension}`,
         mimeType:
@@ -728,23 +750,44 @@ export function App() {
               ? 'text/csv;charset=utf-8'
               : 'application/json;charset=utf-8',
       })
+      if (attempt !== exportSaveAttempt.current) return
       setExportError('')
+      setExportFeedback(
+        result === 'saved' ? '已导出到所选位置。' : result === 'downloaded' ? '下载已开始。' : '',
+      )
     } catch {
-      setExportError('下载未能开始，请检查浏览器下载权限后重试。')
+      if (attempt !== exportSaveAttempt.current) return
+      setExportFeedback('')
+      setExportError('导出失败，请检查文件保存权限后重试。')
+    } finally {
+      if (attempt === exportSaveAttempt.current) {
+        exportSavePending.current = false
+        setExportSaving(false)
+      }
     }
   }
 
-  function downloadImportReport() {
-    if (!importPreview || !importPlan || !hasImportReport) return
+  async function downloadImportReport() {
+    if (!importPreview || !importPlan || !hasImportReport || reportSavePending.current) return
+    const attempt = ++reportSaveAttempt.current
+    reportSavePending.current = true
+    setReportSaving(true)
     try {
-      browserDownload({
+      await saveTextDownload({
         content: serializeImportReport({ preview: importPreview, plan: importPlan }),
         fileName: makeImportReportFileName(importPreview.fileName),
         mimeType: 'application/json;charset=utf-8',
       })
+      if (attempt !== reportSaveAttempt.current) return
       setImportError('')
     } catch {
+      if (attempt !== reportSaveAttempt.current) return
       setImportError('导入报告下载失败，请重试。')
+    } finally {
+      if (attempt === reportSaveAttempt.current) {
+        reportSavePending.current = false
+        setReportSaving(false)
+      }
     }
   }
 
@@ -1717,8 +1760,8 @@ export function App() {
                       取消
                     </button>
                     {hasImportReport ? (
-                      <button type="button" onClick={downloadImportReport}>
-                        下载导入报告
+                      <button type="button" disabled={reportSaving} onClick={downloadImportReport}>
+                        {reportSaving ? '正在保存报告…' : '下载导入报告'}
                       </button>
                     ) : null}
                     <button
@@ -1782,13 +1825,18 @@ export function App() {
                   ) : (
                     <p className="export-empty">当前范围没有可导出的词条。</p>
                   )}
+                  {exportFeedback ? <p role="status">{exportFeedback}</p> : null}
                   {exportError ? <p role="alert">{exportError}</p> : null}
                   <div className="create-dialog-actions">
                     <button type="button" onClick={closeImportDialog}>
                       取消
                     </button>
-                    <button type="button" disabled={!exportPrompts.length} onClick={downloadExport}>
-                      下载 {exportPrompts.length} 条词条
+                    <button
+                      type="button"
+                      disabled={!exportPrompts.length || exportSaving}
+                      onClick={downloadExport}
+                    >
+                      {exportSaving ? '正在保存…' : `下载 ${exportPrompts.length} 条词条`}
                     </button>
                   </div>
                 </>
