@@ -193,6 +193,12 @@ button:disabled {
   font-weight: 650;
 }
 
+.nav-count {
+  margin-left: auto;
+  color: #687386;
+  font-size: 11px;
+}
+
 .sidebar-divider {
   height: 1px;
   margin: 16px 8px;
@@ -336,17 +342,27 @@ button:disabled {
 .prompt-card {
   min-height: 138px;
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 14px;
+  padding: 0;
   border: 1px solid #e2e6ec;
   border-radius: 13px;
   color: inherit;
   background: #fff;
+  transition: 140ms ease;
+}
+
+.prompt-card-action {
+  width: 100%;
+  min-height: 138px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 14px;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: 140ms ease;
 }
 
 .prompt-card:hover {
@@ -398,6 +414,26 @@ button:disabled {
   border-color: #2563eb;
   color: #fff;
   background: #2563eb;
+}
+
+.favorite-button {
+  width: 36px;
+  height: 36px;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border: 0;
+  border-radius: 9px;
+  color: #687386;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.favorite-button:hover,
+.favorite-button.active {
+  color: #b7791f;
+  background: #fff8e6;
 }
 
 .description {

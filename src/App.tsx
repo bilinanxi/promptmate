@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { builtinPromptsByMedia } from './features/prompt-library/builtinPrompts'
 import { filterPrompts } from './features/prompt-library/filterPrompts'
+import {
+  loadFavoriteKeys,
+  makeFavoriteKey,
+  saveFavoriteKeys,
+} from './features/prompt-library/favoriteStorage'
 import type { MediaType, PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
@@ -40,40 +45,71 @@ const libraryNavigation: Record<
   },
 }
 
+const knownFavoriteKeys = new Set(
+  (['image', 'video'] as const).flatMap((mediaType) =>
+    builtinPromptsByMedia[mediaType].map((concept) => makeFavoriteKey(mediaType, concept.id)),
+  ),
+)
+
+function loadFavorites() {
+  try {
+    return loadFavoriteKeys(window.localStorage, knownFavoriteKeys)
+  } catch {
+    return []
+  }
+}
+
 function PromptCard({
   concept,
   selected,
+  favorite,
   onToggle,
+  onToggleFavorite,
 }: {
   concept: PromptConcept
   selected: boolean
+  favorite: boolean
   onToggle: () => void
+  onToggleFavorite: () => void
 }) {
   return (
-    <button
-      type="button"
-      className={`prompt-card${selected ? ' selected' : ''}`}
-      aria-pressed={selected}
-      aria-label={`${concept.zh}，${concept.en}，${selected ? '从灵感篮移除' : '加入灵感篮'}`}
-      onClick={onToggle}
-    >
-      <span className="card-heading">
-        <span>
-          <strong>{concept.zh}</strong>
-          <small>{concept.en}</small>
+    <article className={`prompt-card${selected ? ' selected' : ''}`}>
+      <button
+        type="button"
+        className="prompt-card-action"
+        aria-pressed={selected}
+        aria-label={`${concept.zh}，${concept.en}，${selected ? '从灵感篮移除' : '加入灵感篮'}`}
+        onClick={onToggle}
+      >
+        <span className="card-heading">
+          <span>
+            <strong>{concept.zh}</strong>
+            <small>{concept.en}</small>
+          </span>
+          <span className="add-mark" aria-hidden="true">
+            {selected ? '✓' : '+'}
+          </span>
         </span>
-        <span className="add-mark" aria-hidden="true">
-          {selected ? '✓' : '+'}
-        </span>
-      </span>
-      <span className="description">{concept.description_zh}</span>
-      <span className={`source source-${concept.source}`}>{sourceLabels[concept.source]}</span>
-    </button>
+        <span className="description">{concept.description_zh}</span>
+        <span className={`source source-${concept.source}`}>{sourceLabels[concept.source]}</span>
+      </button>
+      <button
+        type="button"
+        className={`favorite-button${favorite ? ' active' : ''}`}
+        aria-pressed={favorite}
+        aria-label={`${favorite ? '取消收藏' : '收藏'} ${concept.zh}`}
+        onClick={onToggleFavorite}
+      >
+        <span aria-hidden="true">{favorite ? '★' : '☆'}</span>
+      </button>
+    </article>
   )
 }
 
 export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(loadFavorites)
+  const [libraryView, setLibraryView] = useState<'browse' | 'favorites'>('browse')
   const [{ selectedIds, undoSelection }, setBasket] = useState<{
     selectedIds: string[]
     undoSelection: string[] | null
@@ -98,6 +134,13 @@ export function App() {
     () => filterPrompts(promptConcepts, { query, categoryId, tag, source }),
     [promptConcepts, query, categoryId, tag, source],
   )
+  const favoritePrompts = promptConcepts.filter((concept) =>
+    favoriteIds.includes(makeFavoriteKey(mediaType, concept.id)),
+  )
+  const visibleFavoritePrompts = visiblePrompts.filter((concept) =>
+    favoriteIds.includes(makeFavoriteKey(mediaType, concept.id)),
+  )
+  const displayedPrompts = libraryView === 'favorites' ? visibleFavoritePrompts : visiblePrompts
   const hasActiveFilters = Boolean(categoryId || tag || source)
   const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
   const selected = selectedIds
@@ -165,6 +208,19 @@ export function App() {
     )
   }
 
+  function toggleFavorite(id: string) {
+    const key = makeFavoriteKey(mediaType, id)
+    const next = favoriteIds.includes(key)
+      ? favoriteIds.filter((favoriteId) => favoriteId !== key)
+      : [...favoriteIds, key]
+    try {
+      saveFavoriteKeys(window.localStorage, next)
+    } catch {
+      // Keep favorites usable when local persistence is unavailable.
+    }
+    setFavoriteIds(next)
+  }
+
   function clearBasket() {
     mutateBasket(() => [])
   }
@@ -190,6 +246,11 @@ export function App() {
     setCategoryId(undefined)
     setTag(undefined)
     setSource(undefined)
+  }
+
+  function browseAll() {
+    clearCriteria()
+    setLibraryView('browse')
   }
 
   function switchMedia(nextMediaType: MediaType) {
@@ -266,13 +327,41 @@ export function App() {
       <div className="workspace">
         <nav className="sidebar" aria-label="提示词分类">
           <p className="sidebar-title">浏览词库</p>
+          <button
+            type="button"
+            className={`category${libraryView === 'browse' && !hasActiveCriteria ? ' active' : ''}`}
+            aria-pressed={libraryView === 'browse' && !hasActiveCriteria}
+            onClick={browseAll}
+          >
+            <span aria-hidden="true">⌂</span>
+            浏览全部灵感
+          </button>
+          <button
+            type="button"
+            className={`category${libraryView === 'favorites' ? ' active' : ''}`}
+            aria-pressed={libraryView === 'favorites'}
+            aria-label={`我的收藏，${favoritePrompts.length} 个`}
+            onClick={() => {
+              clearCriteria()
+              setLibraryView('favorites')
+            }}
+          >
+            <span aria-hidden="true">★</span>
+            我的收藏
+            <span className="nav-count" aria-hidden="true">
+              {favoritePrompts.length}
+            </span>
+          </button>
           {categories.map((category, index) => (
             <button
               key={category.label}
               type="button"
-              className={`category${categoryId === category.id ? ' active' : ''}`}
-              aria-pressed={categoryId === category.id}
-              onClick={() => setCategoryId(category.id)}
+              className={`category${libraryView === 'browse' && categoryId === category.id ? ' active' : ''}`}
+              aria-pressed={libraryView === 'browse' && categoryId === category.id}
+              onClick={() => {
+                setLibraryView('browse')
+                setCategoryId(category.id)
+              }}
             >
               <span aria-hidden="true">{index === 0 ? '✦' : category.label[0]}</span>
               {category.label}
@@ -297,43 +386,71 @@ export function App() {
         <main className="catalog">
           <div className="catalog-heading">
             <div>
-              <h1>灵感词库</h1>
-              <p>不必先想好答案，看到喜欢的就把它加入灵感篮。</p>
+              <h1>{libraryView === 'favorites' ? '我的收藏' : '灵感词库'}</h1>
+              <p>
+                {libraryView === 'favorites'
+                  ? `只显示当前${mediaType === 'image' ? '图片' : '视频'}类型的收藏。`
+                  : '不必先想好答案，看到喜欢的就把它加入灵感篮。'}
+              </p>
             </div>
             <span>
-              {hasActiveCriteria
-                ? `找到 ${visiblePrompts.length} 个词条`
-                : `正在展示 ${promptConcepts.length} 个精选词条`}
+              {libraryView === 'favorites'
+                ? `${favoritePrompts.length} 个收藏`
+                : hasActiveCriteria
+                  ? `找到 ${visiblePrompts.length} 个词条`
+                  : `正在展示 ${promptConcepts.length} 个精选词条`}
             </span>
           </div>
-          <div className="filter-row" aria-label="推荐筛选">
-            {tagFilters.map((filter) => (
-              <button
-                key={filter.label}
-                type="button"
-                className={`filter-pill${tag === filter.tag ? ' active' : ''}`}
-                aria-pressed={tag === filter.tag}
-                onClick={() => setTag(filter.tag)}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
+          {libraryView === 'browse' ? (
+            <div className="filter-row" aria-label="推荐筛选">
+              {tagFilters.map((filter) => (
+                <button
+                  key={filter.label}
+                  type="button"
+                  className={`filter-pill${tag === filter.tag ? ' active' : ''}`}
+                  aria-pressed={tag === filter.tag}
+                  onClick={() => setTag(filter.tag)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <section aria-labelledby="browse-title">
             <div className="section-heading">
-              <h2 id="browse-title">浏览全部灵感</h2>
-              <span>{visiblePrompts.length} 个词条</span>
+              <h2 id="browse-title">
+                {libraryView === 'favorites' ? '已收藏灵感' : '浏览全部灵感'}
+              </h2>
+              <span>{displayedPrompts.length} 个词条</span>
             </div>
             <div className="prompt-grid">
-              {visiblePrompts.length ? (
-                visiblePrompts.map((concept) => (
+              {displayedPrompts.length ? (
+                displayedPrompts.map((concept) => (
                   <PromptCard
                     key={concept.id}
                     concept={concept}
                     selected={selectedIds.includes(concept.id)}
+                    favorite={favoriteIds.includes(makeFavoriteKey(mediaType, concept.id))}
                     onToggle={() => toggleConcept(concept.id)}
+                    onToggleFavorite={() => toggleFavorite(concept.id)}
                   />
                 ))
+              ) : libraryView === 'favorites' && favoritePrompts.length === 0 ? (
+                <div className="search-empty">
+                  <strong>还没有收藏{mediaType === 'image' ? '图片' : '视频'}提示词</strong>
+                  <p>浏览词库并点击星标，把常用灵感保存在这里。</p>
+                  <button type="button" onClick={browseAll}>
+                    浏览全部灵感
+                  </button>
+                </div>
+              ) : libraryView === 'favorites' ? (
+                <div className="search-empty">
+                  <strong>没有找到匹配的收藏</strong>
+                  <p>试试名称、别名、标签、分类或英文关键词。</p>
+                  <button type="button" onClick={clearCriteria}>
+                    {hasActiveFilters ? '清除全部筛选' : '清除搜索'}
+                  </button>
+                </div>
               ) : (
                 <div className="search-empty">
                   <strong>没有找到匹配的词条</strong>
