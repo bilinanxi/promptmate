@@ -24,6 +24,93 @@ describe('PromptMate workspace', () => {
     expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
   })
 
+  it('clears a nonempty basket and undoes the clear exactly', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(screen.queryByRole('button', { name: '清空灵感篮' })).not.toBeInTheDocument()
+
+    const womanCard = screen.getByRole('button', { name: /年轻女性/ })
+    const streetCard = screen.getByRole('button', { name: /霓虹雨夜街道/ })
+    await user.click(womanCard)
+    await user.click(streetCard)
+    await user.click(screen.getByRole('button', { name: '清空灵感篮' }))
+
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
+    expect(screen.queryByRole('button', { name: '清空灵感篮' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '从灵感篮移除 年轻女性' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent(
+      '从词库选择词条，这里会自动组合。',
+    )
+    expect(womanCard).toHaveAttribute('aria-pressed', 'false')
+    expect(streetCard).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('2')
+    expect(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '从灵感篮移除 霓虹雨夜街道' })).toBeVisible()
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性，霓虹雨夜街道。')
+    expect(womanCard).toHaveAttribute('aria-pressed', 'true')
+    expect(streetCard).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '撤销上一步灵感篮操作' })).toBeDisabled()
+  })
+
+  it('reorders selected prompts with accessible boundary controls and undoes the reorder', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
+
+    expect(screen.getByRole('button', { name: '上移 年轻女性' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '下移 年轻女性' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '上移 霓虹雨夜街道' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '下移 霓虹雨夜街道' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '下移 年轻女性' }))
+
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('霓虹雨夜街道，年轻女性。')
+    expect(screen.getByRole('button', { name: '上移 霓虹雨夜街道' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '下移 年轻女性' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'EN' }))
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent(
+      'neon-lit rainy street, young woman.',
+    )
+
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent(
+      'young woman, neon-lit rainy street.',
+    )
+  })
+
+  it('undoes the latest add or remove mutation with one-level history', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: /霓虹雨夜街道/ }))
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
+    expect(screen.getByRole('button', { name: /霓虹雨夜街道/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    expect(screen.getByRole('button', { name: '撤销上一步灵感篮操作' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '从灵感篮移除 年轻女性' }))
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+    expect(screen.getByLabelText('自动拼装结果')).toHaveTextContent('年轻女性。')
+    expect(screen.getByRole('button', { name: /^年轻女性，/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('removes one selected prompt from the basket and updates the composition', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -201,6 +288,26 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: '为你推荐' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
     expect(screen.getByRole('button', { name: '视频' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('clears undo history when switching media libraries', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /年轻女性/ }))
+    await user.click(screen.getByRole('button', { name: '视频' }))
+
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
+    expect(screen.getByRole('button', { name: '撤销上一步灵感篮操作' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '撤销上一步灵感篮操作' }))
+    expect(screen.queryByText('年轻女性')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /缓慢推进镜头/ }))
+    await user.click(screen.getByRole('button', { name: '图片' }))
+
+    expect(screen.getByLabelText('已选词条数量')).toHaveTextContent('0')
+    expect(screen.getByRole('button', { name: '撤销上一步灵感篮操作' })).toBeDisabled()
+    expect(screen.queryByText('缓慢推进镜头')).not.toBeInTheDocument()
   })
 
   it('combines every criterion and clears all filters from the empty state', async () => {

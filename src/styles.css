@@ -466,17 +466,45 @@ button:disabled {
   font-size: 11px;
 }
 
+.basket-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.basket-actions button {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: #526075;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.basket-actions button:hover:not(:disabled) {
+  color: #174ea6;
+  background: #eef4ff;
+}
+
 .selected-list {
   max-height: 200px;
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  flex-direction: column;
   gap: 7px;
   overflow: auto;
   padding: 14px 16px;
 }
 
+.selected-item {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .selected-chip {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -486,6 +514,23 @@ button:disabled {
   color: #174ea6;
   background: #eef4ff;
   font-size: 12px;
+  cursor: pointer;
+}
+
+.order-controls {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.order-controls button {
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid #d8dde5;
+  border-radius: 7px;
+  color: #526075;
+  background: #fff;
   cursor: pointer;
 }
 

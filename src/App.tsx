@@ -74,7 +74,10 @@ function PromptCard({
 
 export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [{ selectedIds, undoSelection }, setBasket] = useState<{
+    selectedIds: string[]
+    undoSelection: string[] | null
+  }>({ selectedIds: [], undoSelection: null })
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
   const [query, setQuery] = useState('')
   const [categoryId, setCategoryId] = useState<string>()
@@ -93,20 +96,47 @@ export function App() {
   )
   const hasActiveFilters = Boolean(categoryId || tag || source)
   const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
-  const selected = promptConcepts.filter((concept) => selectedIds.has(concept.id))
+  const selected = selectedIds
+    .map((id) => promptConcepts.find((concept) => concept.id === id))
+    .filter((concept): concept is PromptConcept => concept !== undefined)
   const separator = language === 'zh' ? '，' : ', '
   const ending = language === 'zh' ? '。' : '.'
   const output = selected.length
     ? `${selected.map((concept) => concept[language]).join(separator)}${ending}`
     : ''
 
+  function mutateBasket(update: (current: string[]) => string[]) {
+    setBasket((current) => {
+      const next = update(current.selectedIds)
+      if (next === current.selectedIds) return current
+      return { selectedIds: next, undoSelection: current.selectedIds }
+    })
+  }
+
   function toggleConcept(id: string) {
-    setSelectedIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+    mutateBasket((current) =>
+      current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id],
+    )
+  }
+
+  function clearBasket() {
+    mutateBasket(() => [])
+  }
+
+  function moveConcept(index: number, offset: -1 | 1) {
+    mutateBasket((current) => {
+      const destination = index + offset
+      if (destination < 0 || destination >= current.length) return current
+      const next = [...current]
+      ;[next[index], next[destination]] = [next[destination], next[index]]
       return next
     })
+  }
+
+  function undoBasketMutation() {
+    setBasket((current) =>
+      current.undoSelection ? { selectedIds: current.undoSelection, undoSelection: null } : current,
+    )
   }
 
   function clearCriteria() {
@@ -119,7 +149,7 @@ export function App() {
   function switchMedia(nextMediaType: MediaType) {
     if (nextMediaType === mediaType) return
     setMediaType(nextMediaType)
-    setSelectedIds(new Set())
+    setBasket({ selectedIds: [], undoSelection: null })
     clearCriteria()
   }
 
@@ -247,7 +277,7 @@ export function App() {
                   <PromptCard
                     key={concept.id}
                     concept={concept}
-                    selected={selectedIds.has(concept.id)}
+                    selected={selectedIds.includes(concept.id)}
                     onToggle={() => toggleConcept(concept.id)}
                   />
                 ))
@@ -270,20 +300,54 @@ export function App() {
             <span className="basket-count" aria-label="已选词条数量">
               {selected.length}
             </span>
+            <div className="basket-actions">
+              <button
+                type="button"
+                aria-label="撤销上一步灵感篮操作"
+                disabled={!undoSelection}
+                onClick={undoBasketMutation}
+              >
+                撤销
+              </button>
+              {selected.length ? (
+                <button type="button" aria-label="清空灵感篮" onClick={clearBasket}>
+                  清空
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="selected-list">
             {selected.length ? (
-              selected.map((concept) => (
-                <button
-                  type="button"
-                  className="selected-chip"
-                  aria-label={`从灵感篮移除 ${concept.zh}`}
-                  onClick={() => toggleConcept(concept.id)}
-                  key={concept.id}
-                >
-                  {concept.zh}
-                  <span aria-hidden="true">×</span>
-                </button>
+              selected.map((concept, index) => (
+                <div className="selected-item" key={concept.id}>
+                  <button
+                    type="button"
+                    className="selected-chip"
+                    aria-label={`从灵感篮移除 ${concept.zh}`}
+                    onClick={() => toggleConcept(concept.id)}
+                  >
+                    {concept.zh}
+                    <span aria-hidden="true">×</span>
+                  </button>
+                  <div className="order-controls">
+                    <button
+                      type="button"
+                      aria-label={`上移 ${concept.zh}`}
+                      disabled={index === 0}
+                      onClick={() => moveConcept(index, -1)}
+                    >
+                      <span aria-hidden="true">↑</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`下移 ${concept.zh}`}
+                      disabled={index === selected.length - 1}
+                      onClick={() => moveConcept(index, 1)}
+                    >
+                      <span aria-hidden="true">↓</span>
+                    </button>
+                  </div>
+                </div>
               ))
             ) : (
               <p className="basket-empty">点击任意词条卡片，把灵感放进来。</p>
