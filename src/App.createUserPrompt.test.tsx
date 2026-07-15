@@ -24,7 +24,7 @@ describe('create user prompt', () => {
     expect(screen.queryByText('请填写所有必填项。')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       prompts: [
         {
           schema_version: '1.0',
@@ -142,7 +142,7 @@ describe('create user prompt', () => {
     expect(screen.getAllByText('我的词条')).toHaveLength(2)
 
     expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       prompts: [
         {
           schema_version: '1.0',

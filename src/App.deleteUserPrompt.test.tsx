@@ -165,7 +165,7 @@ describe('delete user prompt', () => {
     expect(screen.getByRole('button', { name: '我的词条' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('词条已从本机删除。')).toHaveAttribute('role', 'status')
     expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       prompts: [otherImagePrompt, videoPrompt],
     })
     expect(JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)!)).toEqual({
@@ -260,7 +260,7 @@ describe('delete user prompt', () => {
       'status',
     )
     expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       prompts: [otherImagePrompt],
     })
     expect(JSON.parse(localStorage.getItem(RECENT_USAGE_STORAGE_KEY)!)).toEqual({

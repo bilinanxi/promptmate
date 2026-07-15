@@ -23,6 +23,12 @@ const imagePrompt: PromptConcept = {
   status: 'approved',
 }
 
+const importedPrompt: PromptConcept = {
+  ...imagePrompt,
+  id: 'community-soft-portrait',
+  source: 'imported',
+}
+
 function memoryStorage(initial: string | null = null) {
   let value = initial
   return {
@@ -35,13 +41,24 @@ function memoryStorage(initial: string | null = null) {
 }
 
 describe('user prompt storage', () => {
-  it('roundtrips a versioned exact payload', () => {
+  it('saves an exact v2 payload and roundtrips user and imported managed prompts', () => {
     const storage = memoryStorage()
 
-    expect(saveUserPrompts(storage, [imagePrompt])).toBe(true)
-    expect(JSON.parse(storage.read()!)).toEqual({ version: 1, prompts: [imagePrompt] })
-    expect(loadUserPrompts(storage)).toEqual([imagePrompt])
+    expect(saveUserPrompts(storage, [imagePrompt, importedPrompt])).toBe(true)
+    expect(JSON.parse(storage.read()!)).toEqual({
+      version: 2,
+      prompts: [imagePrompt, importedPrompt],
+    })
+    expect(loadUserPrompts(storage)).toEqual([imagePrompt, importedPrompt])
     expect(USER_PROMPTS_STORAGE_KEY).toBe('promptmate:user-prompts')
+  })
+
+  it('loads a legacy exact v1 user payload without rewriting it', () => {
+    const serialized = JSON.stringify({ version: 1, prompts: [imagePrompt] })
+    const storage = memoryStorage(serialized)
+
+    expect(loadUserPrompts(storage)).toEqual([imagePrompt])
+    expect(storage.read()).toBe(serialized)
   })
 
   it('roundtrips a schema-complete prompt with empty optional descriptions and metadata', () => {
@@ -62,7 +79,12 @@ describe('user prompt storage', () => {
   it.each([
     ['malformed JSON', '{'],
     ['wrong root', '[]'],
-    ['wrong version', JSON.stringify({ version: 2, prompts: [] })],
+    ['wrong version', JSON.stringify({ version: 3, prompts: [] })],
+    ['imported source in legacy v1', JSON.stringify({ version: 1, prompts: [importedPrompt] })],
+    [
+      'unsupported source in v2',
+      JSON.stringify({ version: 2, prompts: [{ ...imagePrompt, source: 'ai_generated' }] }),
+    ],
     ['extra root property', JSON.stringify({ version: 1, prompts: [], extra: true })],
     ['schema-invalid prompt', JSON.stringify({ version: 1, prompts: [{ id: 'bad' }] })],
     [
@@ -99,6 +121,24 @@ describe('user prompt storage', () => {
       }),
     ],
   ])('fails closed for %s', (_label, serialized) => {
+    expect(loadUserPrompts(memoryStorage(serialized))).toEqual([])
+  })
+
+  it.each([
+    ['non-approved imported prompt', [{ ...importedPrompt, status: 'pending' }]],
+    ['multiple media types', [{ ...importedPrompt, media_types: ['image', 'video'] }]],
+    ['unknown category', [{ ...importedPrompt, category_id: 'camera-movement' }]],
+    ['duplicate IDs', [importedPrompt, { ...importedPrompt, zh: '另一个社区词条' }]],
+    ['builtin collision', [{ ...importedPrompt, id: 'young-woman' }]],
+    [
+      'more than 500 combined prompts',
+      Array.from({ length: 501 }, (_, index) => ({
+        ...importedPrompt,
+        id: `community-${index}`,
+      })),
+    ],
+  ])('fails closed for v2 %s', (_label, prompts) => {
+    const serialized = JSON.stringify({ version: 2, prompts })
     expect(loadUserPrompts(memoryStorage(serialized))).toEqual([])
   })
 

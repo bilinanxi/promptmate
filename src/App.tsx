@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { browserDownload } from './features/prompt-library/browserDownload'
 import { builtinPresetsByMedia } from './features/prompt-library/builtinPresets'
 import { builtinPromptsByMedia } from './features/prompt-library/builtinPrompts'
 import { filterPrompts } from './features/prompt-library/filterPrompts'
 import { libraryCatalog } from './features/prompt-library/libraryCatalog'
+import {
+  MAX_IMPORT_BYTES,
+  parsePromptImport,
+  type ImportPreview,
+} from './features/prompt-library/parsePromptImport'
+import { serializePromptCsv } from './features/prompt-library/promptCsv'
+import {
+  planPromptImport,
+  type ImportConflictPolicy,
+  type ImportPlanResult,
+} from './features/prompt-library/planPromptImport'
 import {
   loadFavoriteKeys,
   makeFavoriteKey,
@@ -14,6 +26,17 @@ import {
   saveRecentUsage,
   type RecentUsageRecord,
 } from './features/prompt-library/recentUsageStorage'
+import {
+  selectPromptExport,
+  serializePromptJsonl,
+  serializePromptPackage,
+  type ExportMediaScope,
+  type ExportSourceScope,
+} from './features/prompt-library/serializePromptExport'
+import {
+  makeImportReportFileName,
+  serializeImportReport,
+} from './features/prompt-library/serializeImportReport'
 import {
   MAX_USER_PROMPTS,
   loadUserPrompts,
@@ -29,6 +52,24 @@ const sourceLabels: Record<PromptSource, string> = {
   imported: '社区导入',
   ai_generated: 'AI 生成',
 }
+
+const importResultLabels: Record<ImportPlanResult, string> = {
+  add: '新增',
+  skip: '跳过',
+  replace: '替换',
+  copy: '副本',
+  blocked: '阻断',
+}
+
+const importReasonLabels = {
+  ambiguous: '同一候选匹配了多个目标，请修改 id 或双语名称。',
+  'builtin-replace': '内置词条不能被替换，请选择跳过或创建副本。',
+  'media-change': '替换不能改变媒体类型。',
+  'incoming-replace': '不能替换本次导入中新增的词条。',
+  limit: '导入后将超过本机词条数量上限。',
+} as const
+
+const allBuiltinPrompts = [...builtinPromptsByMedia.image, ...builtinPromptsByMedia.video]
 
 interface CreatePromptDraft {
   zh: string
@@ -57,6 +98,10 @@ function promptsForMedia(mediaType: MediaType, userPrompts: readonly PromptConce
     ...builtinPromptsByMedia[mediaType],
     ...userPrompts.filter((prompt) => prompt.media_types[0] === mediaType),
   ]
+}
+
+function isManagedPrompt(prompt: PromptConcept) {
+  return prompt.source === 'user' || prompt.source === 'imported'
 }
 
 function loadUsers() {
@@ -109,6 +154,21 @@ function formatUsedAt(timestamp: number) {
   const date = new Date(timestamp)
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function readFileBytes(file: File, reader: FileReader): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    reader.onerror = () => reject(reader.error ?? new Error('File read failed'))
+    reader.onabort = () => reject(new DOMException('File read aborted', 'AbortError'))
+    reader.onload = () => {
+      if (!(reader.result instanceof ArrayBuffer)) {
+        reject(new Error('File read returned an unexpected result'))
+        return
+      }
+      resolve(new Uint8Array(reader.result))
+    }
+    reader.readAsArrayBuffer(file)
+  })
 }
 
 const focusableSelector =
@@ -268,6 +328,16 @@ function PromptCard({
 export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
   const [createOpen, setCreateOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [transferTab, setTransferTab] = useState<'import' | 'export'>('import')
+  const [exportMediaScope, setExportMediaScope] = useState<ExportMediaScope>('current')
+  const [exportSourceScope, setExportSourceScope] = useState<ExportSourceScope>('all')
+  const [exportFormat, setExportFormat] = useState<'jsonl' | 'package' | 'csv'>('jsonl')
+  const [exportError, setExportError] = useState('')
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
+  const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>('skip')
+  const [importError, setImportError] = useState('')
+  const [importFeedback, setImportFeedback] = useState<number | null>(null)
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null)
   const [copyingPromptId, setCopyingPromptId] = useState<string | null>(null)
   const [deletePromptId, setDeletePromptId] = useState<string | null>(null)
@@ -278,10 +348,14 @@ export function App() {
     | 'create-session'
     | 'edit-durable'
     | 'edit-session'
+    | 'edit-imported-durable'
+    | 'edit-imported-session'
     | 'copy-durable'
     | 'copy-session'
     | 'delete-durable'
     | 'delete-session'
+    | 'delete-imported-durable'
+    | 'delete-imported-session'
     | null
   >(null)
   const [userPrompts, setUserPrompts] = useState<PromptConcept[]>(loadUsers)
@@ -307,12 +381,26 @@ export function App() {
   const modalFallbackFocus = useRef<HTMLButtonElement>(null)
   const createDialog = useRef<HTMLElement>(null)
   const createInitialFocus = useRef<HTMLInputElement>(null)
+  const importDialog = useRef<HTMLElement>(null)
+  const importInitialFocus = useRef<HTMLInputElement>(null)
+  const importSelection = useRef(0)
+  const importReader = useRef<FileReader | null>(null)
   const deleteDialog = useRef<HTMLElement>(null)
   const deleteInitialFocus = useRef<HTMLButtonElement>(null)
   const copyAttempt = useRef(0)
   const recentSequence = useRef(0)
   const preserveEditedOutput = useRef(false)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      importSelection.current += 1
+      importReader.current?.abort()
+      importReader.current = null
+    },
+    [],
+  )
+
   const promptConcepts = promptsForMedia(mediaType, userPrompts)
   const { categories, tags } = libraryCatalog[mediaType]
   const tagFilters: { label: string; tag?: string }[] = [
@@ -354,11 +442,46 @@ export function App() {
   const deleteTarget = userPrompts.find(
     (prompt) =>
       prompt.id === deletePromptId &&
-      prompt.source === 'user' &&
+      isManagedPrompt(prompt) &&
       prompt.media_types[0] === mediaType,
   )
-  const modalOpen = createOpen || Boolean(deleteTarget)
+  const modalOpen = createOpen || importOpen || Boolean(deleteTarget)
+  const importPlan = useMemo(
+    () =>
+      importPreview
+        ? planPromptImport({
+            incoming: importPreview.candidates,
+            managed: userPrompts,
+            builtins: allBuiltinPrompts,
+            policy: importPolicy,
+          })
+        : null,
+    [importPolicy, importPreview, userPrompts],
+  )
+  const importTransactionBlocked = Boolean(importPreview?.blocked || importPlan?.blocked)
+  const hasImportReport = Boolean(
+    importPreview &&
+    importPlan &&
+    (importPreview.issues.length || importPlan.rows.some(({ conflicts }) => conflicts.length > 0)),
+  )
+  const exportPrompts = useMemo(
+    () =>
+      selectPromptExport([...allBuiltinPrompts, ...userPrompts], {
+        currentMedia: mediaType,
+        media: exportMediaScope,
+        source: exportSourceScope,
+      }),
+    [exportMediaScope, exportSourceScope, mediaType, userPrompts],
+  )
 
+  useModalFocus(
+    importOpen,
+    importDialog,
+    importInitialFocus,
+    modalOpener,
+    modalFallbackFocus,
+    closeImportDialog,
+  )
   useModalFocus(
     createOpen,
     createDialog,
@@ -526,6 +649,132 @@ export function App() {
       document.activeElement instanceof HTMLElement ? document.activeElement : null
   }
 
+  function openImportDialog() {
+    captureModalOpener()
+    setImportOpen(true)
+  }
+
+  function closeImportDialog() {
+    importSelection.current += 1
+    importReader.current?.abort()
+    importReader.current = null
+    setImportOpen(false)
+    setTransferTab('import')
+    setExportMediaScope('current')
+    setExportSourceScope('all')
+    setExportFormat('jsonl')
+    setExportError('')
+    setImportPreview(null)
+    setImportPolicy('skip')
+    setImportError('')
+  }
+
+  async function selectImportFile(file: File | undefined) {
+    const selection = ++importSelection.current
+    importReader.current?.abort()
+    importReader.current = null
+    setImportPreview(null)
+    setImportError('')
+    if (!file) return
+    const lowerName = file.name.toLowerCase()
+    const format = lowerName.endsWith('.promptmate.json')
+      ? 'package'
+      : lowerName.endsWith('.jsonl')
+        ? 'jsonl'
+        : lowerName.endsWith('.csv')
+          ? 'csv'
+          : null
+    if (!format) {
+      setImportError('仅支持 .jsonl、.csv 或 .promptmate.json 文件。')
+      return
+    }
+    if (file.size > MAX_IMPORT_BYTES) {
+      setImportError(`文件不能超过 ${MAX_IMPORT_BYTES} 字节。`)
+      return
+    }
+    const reader = new FileReader()
+    importReader.current = reader
+    try {
+      const bytes = await readFileBytes(file, reader)
+      if (selection !== importSelection.current) return
+      setImportPreview(parsePromptImport({ fileName: file.name, format, bytes }))
+    } catch {
+      if (selection !== importSelection.current) return
+      setImportError('无法读取文件，请重新选择后重试。')
+    } finally {
+      if (importReader.current === reader) importReader.current = null
+    }
+  }
+
+  function downloadExport() {
+    if (!exportPrompts.length) return
+    const mediaName = exportMediaScope === 'current' ? mediaType : 'all'
+    const extension =
+      exportFormat === 'jsonl' ? 'jsonl' : exportFormat === 'csv' ? 'csv' : 'promptmate.json'
+    const content =
+      exportFormat === 'jsonl'
+        ? serializePromptJsonl(exportPrompts)
+        : exportFormat === 'csv'
+          ? serializePromptCsv(exportPrompts)
+          : serializePromptPackage(exportPrompts)
+    try {
+      browserDownload({
+        content,
+        fileName: `promptmate-${mediaName}-${exportSourceScope}.${extension}`,
+        mimeType:
+          exportFormat === 'jsonl'
+            ? 'application/x-ndjson;charset=utf-8'
+            : exportFormat === 'csv'
+              ? 'text/csv;charset=utf-8'
+              : 'application/json;charset=utf-8',
+      })
+      setExportError('')
+    } catch {
+      setExportError('下载未能开始，请检查浏览器下载权限后重试。')
+    }
+  }
+
+  function downloadImportReport() {
+    if (!importPreview || !importPlan || !hasImportReport) return
+    try {
+      browserDownload({
+        content: serializeImportReport({ preview: importPreview, plan: importPlan }),
+        fileName: makeImportReportFileName(importPreview.fileName),
+        mimeType: 'application/json;charset=utf-8',
+      })
+      setImportError('')
+    } catch {
+      setImportError('导入报告下载失败，请重试。')
+    }
+  }
+
+  function applyImport() {
+    if (
+      !importPreview ||
+      !importPlan?.finalPrompts ||
+      importTransactionBlocked ||
+      !importPlan.changedCount
+    )
+      return
+    const nextManaged = [...importPlan.finalPrompts]
+    let durable = false
+    try {
+      durable = saveUserPrompts(window.localStorage, nextManaged)
+    } catch {
+      durable = false
+    }
+    if (!durable) {
+      setImportError('导入未保存，请重试。现有词库未发生变化。')
+      return
+    }
+
+    setUserPrompts(nextManaged)
+    setLibraryView('all')
+    clearCriteria()
+    setImportFeedback(importPlan.changedCount)
+    closeImportDialog()
+  }
+
   function openCreateDialog() {
     captureModalOpener()
     setCreateOpen(true)
@@ -547,9 +796,7 @@ export function App() {
   function openEditDialog(id: string) {
     const prompt = userPrompts.find(
       (candidate) =>
-        candidate.id === id &&
-        candidate.source === 'user' &&
-        candidate.media_types[0] === mediaType,
+        candidate.id === id && isManagedPrompt(candidate) && candidate.media_types[0] === mediaType,
     )
     if (!prompt) return
     captureModalOpener()
@@ -637,7 +884,7 @@ export function App() {
       ? userPrompts.find(
           (candidate) =>
             candidate.id === editingPromptId &&
-            candidate.source === 'user' &&
+            isManagedPrompt(candidate) &&
             candidate.media_types[0] === mediaType,
         )
       : undefined
@@ -672,16 +919,20 @@ export function App() {
     setUserPrompts(next)
     setLibraryView('all')
     clearCriteria()
-    setSource('user')
+    setSource(editedPrompt?.source ?? 'user')
     setCreateFeedback(
       copyOrigin
         ? durable
           ? 'copy-durable'
           : 'copy-session'
         : editedPrompt
-          ? durable
-            ? 'edit-durable'
-            : 'edit-session'
+          ? editedPrompt.source === 'imported'
+            ? durable
+              ? 'edit-imported-durable'
+              : 'edit-imported-session'
+            : durable
+              ? 'edit-durable'
+              : 'edit-session'
           : durable
             ? 'create-durable'
             : 'create-session',
@@ -693,7 +944,7 @@ export function App() {
     const target = userPrompts.find(
       (prompt) =>
         prompt.id === deletePromptId &&
-        prompt.source === 'user' &&
+        isManagedPrompt(prompt) &&
         prompt.media_types[0] === mediaType,
     )
     if (!target) {
@@ -736,9 +987,15 @@ export function App() {
     if (targetWasSelected) setEditedOutput(null)
     setLibraryView('all')
     clearCriteria()
-    setSource('user')
+    setSource(target.source)
     setCreateFeedback(
-      usersSaved && favoritesSaved && recentSaved ? 'delete-durable' : 'delete-session',
+      target.source === 'imported'
+        ? usersSaved && favoritesSaved && recentSaved
+          ? 'delete-imported-durable'
+          : 'delete-imported-session'
+        : usersSaved && favoritesSaved && recentSaved
+          ? 'delete-durable'
+          : 'delete-session',
     )
     setDeletePromptId(null)
   }
@@ -746,6 +1003,7 @@ export function App() {
   function switchMedia(nextMediaType: MediaType) {
     if (nextMediaType === mediaType) return
     closeCreateDialog()
+    closeImportDialog()
     setDeletePromptId(null)
     setMediaType(nextMediaType)
     setLibraryView('all')
@@ -969,6 +1227,9 @@ export function App() {
                             ? `找到 ${visiblePrompts.length} 个词条`
                             : `正在展示 ${promptConcepts.length} 个精选词条`}
                 </span>
+                <button type="button" className="import-export-button" onClick={openImportDialog}>
+                  导入与导出
+                </button>
                 <button
                   ref={modalFallbackFocus}
                   type="button"
@@ -979,6 +1240,11 @@ export function App() {
                 </button>
               </div>
             </div>
+            {importFeedback !== null ? (
+              <p className="create-feedback create-durable" role="status" aria-live="polite">
+                已成功导入 {importFeedback} 条社区词条。
+              </p>
+            ) : null}
             {createFeedback ? (
               <p className={`create-feedback ${createFeedback}`} role="status" aria-live="polite">
                 {createFeedback === 'create-durable'
@@ -989,13 +1255,21 @@ export function App() {
                       ? '词条副本已保存到我的词条。'
                       : createFeedback === 'copy-session'
                         ? '词条副本已添加到当前会话，但无法保存到本机。'
-                        : createFeedback === 'edit-durable'
-                          ? '词条修改已保存到本机。'
-                          : createFeedback === 'edit-session'
-                            ? '词条修改已应用到当前会话，但无法保存到本机。'
-                            : createFeedback === 'delete-durable'
-                              ? '词条已从本机删除。'
-                              : '词条已从当前会话删除，但部分本地数据可能未保存。'}
+                        : createFeedback === 'edit-imported-durable'
+                          ? '社区词条已更新。'
+                          : createFeedback === 'edit-imported-session'
+                            ? '社区词条已在当前会话更新，但无法保存到本机。'
+                            : createFeedback === 'edit-durable'
+                              ? '词条修改已保存到本机。'
+                              : createFeedback === 'edit-session'
+                                ? '词条修改已应用到当前会话，但无法保存到本机。'
+                                : createFeedback === 'delete-imported-durable'
+                                  ? '社区词条已删除。'
+                                  : createFeedback === 'delete-imported-session'
+                                    ? '社区词条已从当前会话删除，但部分本地数据可能未保存。'
+                                    : createFeedback === 'delete-durable'
+                                      ? '词条已从本机删除。'
+                                      : '词条已从当前会话删除，但部分本地数据可能未保存。'}
               </p>
             ) : null}
             {libraryView === 'all' ? (
@@ -1121,10 +1395,10 @@ export function App() {
                             : undefined
                         }
                         onEdit={
-                          concept.source === 'user' ? () => openEditDialog(concept.id) : undefined
+                          isManagedPrompt(concept) ? () => openEditDialog(concept.id) : undefined
                         }
                         onDelete={
-                          concept.source === 'user' ? () => openDeleteDialog(concept.id) : undefined
+                          isManagedPrompt(concept) ? () => openDeleteDialog(concept.id) : undefined
                         }
                       />
                     ))
@@ -1278,6 +1552,251 @@ export function App() {
           </aside>
         </div>
       </div>
+      {importOpen ? (
+        <div className="dialog-backdrop">
+          <section
+            ref={importDialog}
+            className="import-dialog"
+            role="dialog"
+            tabIndex={-1}
+            aria-modal="true"
+            aria-labelledby="import-title"
+          >
+            <div className="create-dialog-heading">
+              <div>
+                <h2 id="import-title">导入与导出</h2>
+                <p>离线导入或导出 JSONL、CSV 与 PromptMate 数据包。</p>
+              </div>
+              <button type="button" aria-label="关闭导入与导出" onClick={closeImportDialog}>
+                ×
+              </button>
+            </div>
+            <div className="transfer-tabs" role="tablist" aria-label="导入与导出模式">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={transferTab === 'import'}
+                onClick={() => setTransferTab('import')}
+              >
+                导入
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={transferTab === 'export'}
+                onClick={() => setTransferTab('export')}
+              >
+                导出
+              </button>
+            </div>
+            <div className="import-content">
+              {transferTab === 'import' ? (
+                <>
+                  <label className="import-file-field">
+                    选择 JSONL、CSV 或 PromptMate 数据包
+                    <input
+                      ref={importInitialFocus}
+                      type="file"
+                      aria-label="选择 JSONL 文件"
+                      accept=".jsonl,.csv,.promptmate.json,application/x-ndjson,text/csv,application/json"
+                      onChange={(event) => void selectImportFile(event.currentTarget.files?.[0])}
+                    />
+                  </label>
+                  {importPreview && importPlan ? (
+                    <>
+                      <label className="import-policy-field">
+                        重复项处理
+                        <select
+                          value={importPolicy}
+                          onChange={(event) =>
+                            setImportPolicy(event.currentTarget.value as ImportConflictPolicy)
+                          }
+                        >
+                          <option value="skip">跳过重复项</option>
+                          <option value="replace">替换已有词条</option>
+                          <option value="copy">创建副本</option>
+                        </select>
+                      </label>
+                      <p className="import-summary">
+                        共 {importPreview.summary.incomingRows} 行，
+                        {importPreview.summary.errorCount} 个错误；新增 {importPlan.counts.add} ·
+                        跳过 {importPlan.counts.skip} · 替换 {importPlan.counts.replace} · 副本{' '}
+                        {importPlan.counts.copy} · 阻断 {importPlan.counts.blocked}；导入后共{' '}
+                        {importPlan.importAfterTotal} 条
+                      </p>
+                      {importPlan.rows.length ? (
+                        <ul className="import-preview-list" aria-label="导入预览">
+                          {importPlan.rows.map((row, index) => {
+                            const candidate = row.candidate
+                            const candidateMedia = candidate.media_types[0] as MediaType
+                            const categoryLabel = libraryCatalog[candidateMedia].categories.find(
+                              ({ id }) => id === candidate.category_id,
+                            )?.label
+                            const targets = [
+                              ...new Map(
+                                row.conflicts.map(({ target }) => [
+                                  `${target.scope}:${target.prompt.id}`,
+                                  target,
+                                ]),
+                              ).values(),
+                            ]
+                            return (
+                              <li key={`${candidate.id}-${index}`}>
+                                <strong>{candidate.zh}</strong>
+                                <span>{candidate.en}</span>
+                                <small>
+                                  {candidateMedia === 'image' ? '图片' : '视频'} · {categoryLabel} ·{' '}
+                                  {sourceLabels[candidate.source]}
+                                </small>
+                                <span className={`import-result import-result-${row.result}`}>
+                                  {importResultLabels[row.result]}
+                                </span>
+                                {targets.length ? (
+                                  <small>
+                                    冲突目标：
+                                    {targets
+                                      .map(
+                                        ({ scope, prompt }) =>
+                                          `${prompt.zh}（${
+                                            scope === 'builtin'
+                                              ? '内置'
+                                              : scope === 'managed'
+                                                ? '已有'
+                                                : '本次导入'
+                                          }）`,
+                                      )
+                                      .join('、')}
+                                  </small>
+                                ) : null}
+                                {row.reason ? (
+                                  <small>阻断原因：{importReasonLabels[row.reason]}</small>
+                                ) : null}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      ) : null}
+                      {importPreview.issues.length || importPlan.blocked ? (
+                        <div className="import-issues" role="alert">
+                          <strong>
+                            {importPreview.issues.length
+                              ? '文件包含错误，修正后才能导入。'
+                              : '存在无法处理的冲突，本次导入不会写入。'}
+                          </strong>
+                          {importPreview.issues.length ? (
+                            <>
+                              <ul aria-label="文件解析错误">
+                                {importPreview.issues.slice(0, 100).map((issue, index) => {
+                                  const position = issue.location
+                                    ? issue.location
+                                    : issue.line
+                                      ? `第 ${issue.line} 行`
+                                      : ''
+                                  const field = issue.field ? `字段 ${issue.field}` : ''
+                                  const prefix = [position, field].filter(Boolean).join(' · ')
+                                  return (
+                                    <li key={`${issue.code}-${issue.line ?? 0}-${index}`}>
+                                      {prefix ? `${prefix}：` : ''}
+                                      {issue.message}
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                              {importPreview.issues.length > 100 ? (
+                                <p>其余 {importPreview.issues.length - 100} 项请下载报告。</p>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {importError ? <p role="alert">{importError}</p> : null}
+                  <div className="create-dialog-actions">
+                    <button type="button" onClick={closeImportDialog}>
+                      取消
+                    </button>
+                    {hasImportReport ? (
+                      <button type="button" onClick={downloadImportReport}>
+                        下载导入报告
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={
+                        !importPreview ||
+                        !importPlan ||
+                        importTransactionBlocked ||
+                        !importPlan.changedCount
+                      }
+                      onClick={applyImport}
+                    >
+                      确认导入 {importPlan?.changedCount ?? 0} 条
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="export-controls">
+                    <label>
+                      媒体范围
+                      <select
+                        value={exportMediaScope}
+                        onChange={(event) =>
+                          setExportMediaScope(event.currentTarget.value as ExportMediaScope)
+                        }
+                      >
+                        <option value="current">当前媒体</option>
+                        <option value="all">全部媒体</option>
+                      </select>
+                    </label>
+                    <label>
+                      词条来源
+                      <select
+                        value={exportSourceScope}
+                        onChange={(event) =>
+                          setExportSourceScope(event.currentTarget.value as ExportSourceScope)
+                        }
+                      >
+                        <option value="all">全部词条</option>
+                        <option value="user">我的词条</option>
+                        <option value="imported">社区导入</option>
+                      </select>
+                    </label>
+                    <label>
+                      导出格式
+                      <select
+                        value={exportFormat}
+                        onChange={(event) =>
+                          setExportFormat(event.currentTarget.value as 'jsonl' | 'package' | 'csv')
+                        }
+                      >
+                        <option value="jsonl">JSONL</option>
+                        <option value="csv">CSV</option>
+                        <option value="package">PromptMate 数据包</option>
+                      </select>
+                    </label>
+                  </div>
+                  {exportPrompts.length ? (
+                    <p className="import-summary">将导出 {exportPrompts.length} 条词条</p>
+                  ) : (
+                    <p className="export-empty">当前范围没有可导出的词条。</p>
+                  )}
+                  {exportError ? <p role="alert">{exportError}</p> : null}
+                  <div className="create-dialog-actions">
+                    <button type="button" onClick={closeImportDialog}>
+                      取消
+                    </button>
+                    <button type="button" disabled={!exportPrompts.length} onClick={downloadExport}>
+                      下载 {exportPrompts.length} 条词条
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
       {createOpen ? (
         <div className="dialog-backdrop">
           <section

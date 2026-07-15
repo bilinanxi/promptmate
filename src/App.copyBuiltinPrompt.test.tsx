@@ -175,7 +175,7 @@ describe('copy builtin prompt then edit', () => {
     expect(screen.getByRole('button', { name: '我的词条' })).toHaveAttribute('aria-pressed', 'true')
 
     expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!)).toEqual({
-      version: 1,
+      version: 2,
       prompts: [
         seededUserPrompt,
         {

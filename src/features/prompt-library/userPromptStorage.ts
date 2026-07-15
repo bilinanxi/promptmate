@@ -22,7 +22,10 @@ const builtinPromptIds = new Set(
   ),
 )
 
-function isValidUserPromptList(value: unknown): value is PromptConcept[] {
+function isValidManagedPromptList(
+  value: unknown,
+  allowedSources: ReadonlySet<PromptConcept['source']>,
+): value is PromptConcept[] {
   if (
     !Array.isArray(value) ||
     value.length > MAX_USER_PROMPTS ||
@@ -35,7 +38,7 @@ function isValidUserPromptList(value: unknown): value is PromptConcept[] {
   return (
     !prompts.some((prompt) => {
       if (
-        prompt.source !== 'user' ||
+        !allowedSources.has(prompt.source) ||
         prompt.status !== 'approved' ||
         prompt.media_types.length !== 1
       ) {
@@ -81,7 +84,13 @@ export function loadUserPrompts(storage: StorageReader): PromptConcept[] {
     }
 
     const candidate = payload as { version: unknown; prompts: unknown }
-    if (candidate.version !== 1 || !isValidUserPromptList(candidate.prompts)) {
+    const allowedSources =
+      candidate.version === 1
+        ? new Set<PromptConcept['source']>(['user'])
+        : candidate.version === 2
+          ? new Set<PromptConcept['source']>(['user', 'imported'])
+          : null
+    if (!allowedSources || !isValidManagedPromptList(candidate.prompts, allowedSources)) {
       return []
     }
 
@@ -92,10 +101,11 @@ export function loadUserPrompts(storage: StorageReader): PromptConcept[] {
 }
 
 export function saveUserPrompts(storage: StorageWriter, prompts: PromptConcept[]): boolean {
-  if (!isValidUserPromptList(prompts)) return false
+  if (!isValidManagedPromptList(prompts, new Set<PromptConcept['source']>(['user', 'imported'])))
+    return false
 
   try {
-    storage.setItem(USER_PROMPTS_STORAGE_KEY, JSON.stringify({ version: 1, prompts }))
+    storage.setItem(USER_PROMPTS_STORAGE_KEY, JSON.stringify({ version: 2, prompts }))
     return true
   } catch {
     return false
