@@ -497,6 +497,43 @@ button:disabled {
   background: #fff8e6;
 }
 
+.copy-prompt-button,
+.edit-prompt-button {
+  position: absolute;
+  right: 48px;
+  bottom: 10px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #526075;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.copy-prompt-button:hover,
+.edit-prompt-button:hover {
+  color: #174ea6;
+  background: #eef4ff;
+}
+
+.delete-prompt-button {
+  position: absolute;
+  right: 88px;
+  bottom: 10px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #a33127;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.delete-prompt-button:hover {
+  background: #fff1f0;
+}
+
 .description {
   margin: 12px 0 16px;
   color: #687386;
@@ -712,6 +749,254 @@ textarea.output-text {
 
 .copy-feedback.error {
   color: #b42318;
+}
+
+.catalog-heading-actions {
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  padding-top: 2px;
+}
+
+.catalog-heading-actions > span {
+  color: #687386;
+  font-size: 12px;
+}
+
+.create-prompt-button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #2563eb;
+  border-radius: 9px;
+  color: #fff;
+  background: #2563eb;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.create-prompt-button:hover {
+  background: #1d4ed8;
+}
+
+.create-feedback {
+  margin: -7px 0 18px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.create-feedback.create-durable,
+.create-feedback.edit-durable,
+.create-feedback.copy-durable,
+.create-feedback.delete-durable {
+  color: #126b57;
+  background: #eaf8f3;
+}
+
+.create-feedback.create-session,
+.create-feedback.edit-session,
+.create-feedback.copy-session,
+.create-feedback.delete-session {
+  color: #8a4b0f;
+  background: #fff6e8;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: #0f172a80;
+}
+
+.create-dialog {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 22px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px #0f172a40;
+}
+
+.delete-dialog {
+  width: min(440px, 100%);
+  padding: 22px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px #0f172a40;
+}
+
+.delete-dialog h2 {
+  margin: 0;
+  color: #8f241c;
+}
+
+.delete-dialog p {
+  color: #526075;
+}
+
+.delete-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.delete-dialog-actions button {
+  min-height: 36px;
+  padding: 0 15px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.delete-dialog-actions .destructive-action {
+  border-color: #b42318;
+  color: #fff;
+  background: #b42318;
+}
+
+.create-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.create-dialog-heading h2,
+.create-dialog-heading p {
+  margin: 0;
+}
+
+.create-dialog-heading p {
+  margin-top: 4px;
+  color: #687386;
+  font-size: 12px;
+}
+
+.create-dialog-heading button {
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  color: #526075;
+  background: #f1f4f8;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.create-prompt-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px 16px;
+}
+
+.create-prompt-form label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.create-prompt-form input,
+.create-prompt-form select,
+.create-prompt-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  color: #18202d;
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+}
+
+.create-prompt-form textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.create-prompt-form > [role='alert'] {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  color: #b42318;
+  background: #fff1f0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.create-dialog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding-top: 3px;
+}
+
+.create-dialog-actions button {
+  min-height: 36px;
+  padding: 0 15px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  color: #334155;
+  background: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.create-dialog-actions button[type='submit'] {
+  border-color: #2563eb;
+  color: #fff;
+  background: #2563eb;
+}
+
+@media (max-width: 900px) {
+  .catalog-heading {
+    flex-wrap: wrap;
+  }
+
+  .catalog-heading-actions {
+    width: 100%;
+    min-width: 0;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .dialog-backdrop {
+    place-items: start center;
+    padding: 12px;
+  }
+
+  .create-dialog {
+    max-height: calc(100vh - 24px);
+    padding: 18px;
+  }
+
+  .create-prompt-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .create-prompt-form > [role='alert'],
+  .create-dialog-actions {
+    grid-column: 1;
+  }
 }
 
 @media (max-width: 1120px) {

@@ -654,7 +654,7 @@ describe('PromptMate workspace', () => {
     await user.click(myPrompts)
 
     expect(myPrompts).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('没有找到匹配的词条')).toBeVisible()
+    expect(screen.getByText('还没有我的词条')).toBeVisible()
     expect(screen.getByText('找到 0 个词条')).toBeVisible()
 
     await user.click(myPrompts)
