@@ -1,5 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 
+import {
+  defaultAiProviderConfig,
+  loadAiProviderConfig,
+  saveAiProviderConfig,
+  validateAiProviderConfig,
+  type AiProviderConfig,
+  type AiProviderKind,
+} from './features/ai/aiProviderConfig'
+import {
+  aiNativeClient,
+  isAiFieldSuggestion,
+  type AiCreativityMode,
+  type AiFieldSuggestion,
+} from './features/ai/aiNativeClient'
+import { AiCompletionPanel } from './features/ai/AiCompletionPanel'
+import { AiSettingsDialog } from './features/ai/AiSettingsDialog'
+import {
+  applyAiSuggestionWithoutStaleOverwrite,
+  defaultAiSuggestionSelection,
+  type AiEditableFields,
+  type AiSuggestionSelection,
+} from './features/ai/aiSuggestion'
 import { builtinPresetsByMedia } from './features/prompt-library/builtinPresets'
 import { builtinPromptsByMedia } from './features/prompt-library/builtinPrompts'
 import { filterPrompts } from './features/prompt-library/filterPrompts'
@@ -111,6 +133,28 @@ function loadUsers() {
   } catch {
     return []
   }
+}
+
+function loadAiConfig() {
+  try {
+    return loadAiProviderConfig(window.localStorage)
+  } catch {
+    return defaultAiProviderConfig('openai-compatible')
+  }
+}
+
+function safeAiError(error: unknown, secret = ''): string {
+  const raw =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : 'AI 操作失败，请检查设置后重试。'
+  const withoutSecret = secret ? raw.split(secret).join('[REDACTED]') : raw
+  return withoutSecret
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[REDACTED]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .slice(0, 300)
 }
 
 function loadFavorites(userPrompts: readonly PromptConcept[]) {
@@ -328,6 +372,20 @@ function PromptCard({
 
 export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
+  const [aiConfig, setAiConfig] = useState<AiProviderConfig>(loadAiConfig)
+  const [aiSettingsDraft, setAiSettingsDraft] = useState<AiProviderConfig>(aiConfig)
+  const [aiApiKey, setAiApiKey] = useState('')
+  const [aiHasKey, setAiHasKey] = useState(false)
+  const [aiSettingsBusy, setAiSettingsBusy] = useState(false)
+  const [aiSettingsStatus, setAiSettingsStatus] = useState('')
+  const [aiSettingsError, setAiSettingsError] = useState('')
+  const [aiMode, setAiMode] = useState<AiCreativityMode>('balanced')
+  const [aiCompleting, setAiCompleting] = useState(false)
+  const [aiCompletionError, setAiCompletionError] = useState('')
+  const [aiSuggestion, setAiSuggestion] = useState<AiFieldSuggestion | null>(null)
+  const [aiSuggestionBaseline, setAiSuggestionBaseline] = useState<AiEditableFields | null>(null)
+  const [aiSelection, setAiSelection] = useState<AiSuggestionSelection | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [transferTab, setTransferTab] = useState<'import' | 'export'>('import')
@@ -383,6 +441,14 @@ export function App() {
   const searchInput = useRef<HTMLInputElement>(null)
   const modalOpener = useRef<HTMLElement>(null)
   const modalFallbackFocus = useRef<HTMLButtonElement>(null)
+  const aiSettingsDialog = useRef<HTMLElement>(null)
+  const aiSettingsInitialFocus = useRef<HTMLSelectElement>(null)
+  const aiSettingsAttempt = useRef(0)
+  const aiSettingsPending = useRef(false)
+  const aiCompletionAttempt = useRef(0)
+  const aiCompletionPending = useRef(false)
+  const aiCompletionRequestId = useRef<string | null>(null)
+  const latestCreateDraft = useRef(createDraft)
   const createDialog = useRef<HTMLElement>(null)
   const createInitialFocus = useRef<HTMLInputElement>(null)
   const importDialog = useRef<HTMLElement>(null)
@@ -407,11 +473,23 @@ export function App() {
       importReader.current = null
       exportSaveAttempt.current += 1
       reportSaveAttempt.current += 1
+      if (aiCompletionRequestId.current) {
+        void aiNativeClient.cancel(aiCompletionRequestId.current).catch(() => undefined)
+        aiCompletionRequestId.current = null
+      }
+      aiSettingsAttempt.current += 1
+      aiCompletionAttempt.current += 1
       exportSavePending.current = false
       reportSavePending.current = false
+      aiSettingsPending.current = false
+      aiCompletionPending.current = false
     },
     [],
   )
+
+  useEffect(() => {
+    latestCreateDraft.current = createDraft
+  }, [createDraft])
 
   const promptConcepts = promptsForMedia(mediaType, userPrompts)
   const { categories, tags } = libraryCatalog[mediaType]
@@ -457,7 +535,7 @@ export function App() {
       isManagedPrompt(prompt) &&
       prompt.media_types[0] === mediaType,
   )
-  const modalOpen = createOpen || importOpen || Boolean(deleteTarget)
+  const modalOpen = aiSettingsOpen || createOpen || importOpen || Boolean(deleteTarget)
   const importPlan = useMemo(
     () =>
       importPreview
@@ -486,6 +564,14 @@ export function App() {
     [exportMediaScope, exportSourceScope, mediaType, userPrompts],
   )
 
+  useModalFocus(
+    aiSettingsOpen,
+    aiSettingsDialog,
+    aiSettingsInitialFocus,
+    modalOpener,
+    modalFallbackFocus,
+    closeAiSettings,
+  )
   useModalFocus(
     importOpen,
     importDialog,
@@ -818,6 +904,301 @@ export function App() {
     closeImportDialog()
   }
 
+  async function openAiSettings() {
+    captureModalOpener()
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = false
+    setAiSettingsDraft(aiConfig)
+    setAiApiKey('')
+    setAiHasKey(false)
+    setAiSettingsBusy(false)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    setAiSettingsOpen(true)
+    try {
+      const hasKey = await aiNativeClient.hasApiKey(aiConfig)
+      if (attempt === aiSettingsAttempt.current) setAiHasKey(hasKey)
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error))
+    }
+  }
+
+  function closeAiSettings() {
+    if (aiSettingsPending.current) return
+    aiSettingsAttempt.current += 1
+    aiSettingsPending.current = false
+    setAiSettingsBusy(false)
+    setAiSettingsOpen(false)
+    setAiApiKey('')
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+  }
+
+  async function changeAiProvider(kind: AiProviderKind) {
+    const config = defaultAiProviderConfig(kind)
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = true
+    setAiSettingsDraft(config)
+    setAiApiKey('')
+    setAiHasKey(false)
+    setAiSettingsBusy(true)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    try {
+      const hasKey = await aiNativeClient.hasApiKey(config)
+      if (attempt === aiSettingsAttempt.current) setAiHasKey(hasKey)
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error))
+    } finally {
+      if (attempt === aiSettingsAttempt.current) {
+        aiSettingsPending.current = false
+        setAiSettingsBusy(false)
+      }
+    }
+  }
+
+  function updateAiSettingsDraft(config: AiProviderConfig) {
+    aiSettingsAttempt.current += 1
+    aiSettingsPending.current = false
+    setAiSettingsDraft(config)
+    setAiHasKey(false)
+    setAiSettingsBusy(false)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+  }
+
+  function normalizedAiDraft(): AiProviderConfig {
+    return {
+      ...aiSettingsDraft,
+      baseUrl: aiSettingsDraft.baseUrl.trim().replace(/\/+$/, ''),
+      model: aiSettingsDraft.model.trim(),
+    }
+  }
+
+  async function checkAiApiKey() {
+    if (aiSettingsPending.current) return
+    const config = normalizedAiDraft()
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = true
+    setAiSettingsBusy(true)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    try {
+      const hasKey = await aiNativeClient.hasApiKey(config)
+      if (attempt !== aiSettingsAttempt.current) return
+      setAiHasKey(hasKey)
+      setAiSettingsStatus(hasKey ? '当前服务已保存 API Key。' : '当前服务没有已保存的 API Key。')
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error))
+    } finally {
+      if (attempt === aiSettingsAttempt.current) {
+        aiSettingsPending.current = false
+        setAiSettingsBusy(false)
+      }
+    }
+  }
+
+  async function saveAiSettings() {
+    if (aiSettingsPending.current) return
+    const config = normalizedAiDraft()
+    const validationError = validateAiProviderConfig(config)
+    if (validationError) {
+      setAiSettingsError(validationError)
+      return
+    }
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = true
+    setAiSettingsBusy(true)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    try {
+      if (!saveAiProviderConfig(window.localStorage, config)) {
+        throw new Error('设置无法保存到本机。')
+      }
+      setAiConfig(config)
+      setAiSettingsDraft(config)
+      if (aiApiKey) await aiNativeClient.saveApiKey(config, aiApiKey)
+      if (attempt !== aiSettingsAttempt.current) return
+      if (aiApiKey) setAiHasKey(true)
+      setAiApiKey('')
+      setAiSettingsStatus('设置已保存。API Key 仅保存在 Windows 凭据管理器中。')
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error, aiApiKey))
+    } finally {
+      if (attempt === aiSettingsAttempt.current) {
+        aiSettingsPending.current = false
+        setAiSettingsBusy(false)
+      }
+    }
+  }
+
+  async function testAiConnection() {
+    if (aiSettingsPending.current) return
+    const config = normalizedAiDraft()
+    const validationError = validateAiProviderConfig(config)
+    if (validationError) {
+      setAiSettingsError(validationError)
+      return
+    }
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = true
+    setAiSettingsBusy(true)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    try {
+      if (aiApiKey) {
+        if (!saveAiProviderConfig(window.localStorage, config)) {
+          throw new Error('设置无法保存到本机。')
+        }
+        setAiConfig(config)
+        setAiSettingsDraft(config)
+        await aiNativeClient.saveApiKey(config, aiApiKey)
+        if (attempt !== aiSettingsAttempt.current) return
+        setAiHasKey(true)
+        setAiApiKey('')
+      }
+      const message = await aiNativeClient.testConnection(config)
+      if (attempt === aiSettingsAttempt.current) setAiSettingsStatus(message)
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error, aiApiKey))
+    } finally {
+      if (attempt === aiSettingsAttempt.current) {
+        aiSettingsPending.current = false
+        setAiSettingsBusy(false)
+      }
+    }
+  }
+
+  async function clearAiApiKey() {
+    if (aiSettingsPending.current) return
+    const config = normalizedAiDraft()
+    const validationError = validateAiProviderConfig(config)
+    if (validationError) {
+      setAiSettingsError(validationError)
+      return
+    }
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = true
+    setAiSettingsBusy(true)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    try {
+      await aiNativeClient.deleteApiKey(config)
+      if (attempt !== aiSettingsAttempt.current) return
+      setAiHasKey(false)
+      setAiApiKey('')
+      setAiSettingsStatus('已清除当前服务的 API Key。')
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error))
+    } finally {
+      if (attempt === aiSettingsAttempt.current) {
+        aiSettingsPending.current = false
+        setAiSettingsBusy(false)
+      }
+    }
+  }
+
+  async function requestAiCompletion() {
+    if (aiCompletionPending.current) return
+    if (!createDraft.zh.trim() || !createDraft.en.trim() || !createDraft.categoryId.trim()) {
+      setAiCompletionError('请先填写中文名称、英文名称和分类。')
+      return
+    }
+    const configError = validateAiProviderConfig(aiConfig)
+    if (configError) {
+      setAiCompletionError('请先在 AI 设置中配置有效的服务地址和模型。')
+      return
+    }
+    const attempt = ++aiCompletionAttempt.current
+    const requestId = `completion-${Date.now()}-${attempt}`
+    aiCompletionRequestId.current = requestId
+    aiCompletionPending.current = true
+    setAiCompleting(true)
+    setAiCompletionError('')
+    setAiSuggestion(null)
+    setAiSuggestionBaseline(null)
+    setAiSelection(null)
+    try {
+      const suggestion = await aiNativeClient.complete(
+        aiConfig,
+        {
+          zh: createDraft.zh.trim(),
+          en: createDraft.en.trim(),
+          categoryId: createDraft.categoryId,
+          mediaType,
+          descriptionZh: createDraft.descriptionZh.trim(),
+          descriptionEn: createDraft.descriptionEn.trim(),
+          tags: parseList(createDraft.tags),
+          aliasesZh: parseList(createDraft.aliasesZh),
+          aliasesEn: parseList(createDraft.aliasesEn),
+        },
+        aiMode,
+        requestId,
+      )
+      if (attempt !== aiCompletionAttempt.current) return
+      if (!isAiFieldSuggestion(suggestion)) throw new Error('AI 返回了无效的补全结果。')
+      const baseline = latestCreateDraft.current
+      setAiSuggestion(suggestion)
+      setAiSuggestionBaseline(baseline)
+      setAiSelection(defaultAiSuggestionSelection(baseline, suggestion))
+    } catch (error) {
+      if (attempt === aiCompletionAttempt.current) setAiCompletionError(safeAiError(error))
+    } finally {
+      if (attempt === aiCompletionAttempt.current) {
+        if (aiCompletionRequestId.current === requestId) aiCompletionRequestId.current = null
+        aiCompletionPending.current = false
+        setAiCompleting(false)
+      }
+    }
+  }
+
+  function cancelAiCompletion() {
+    const requestId = aiCompletionRequestId.current
+    aiCompletionRequestId.current = null
+    if (requestId) void aiNativeClient.cancel(requestId).catch(() => undefined)
+    aiCompletionAttempt.current += 1
+    aiCompletionPending.current = false
+    setAiCompleting(false)
+    setAiCompletionError('')
+  }
+
+  function applySelectedAiSuggestion() {
+    if (!aiSuggestion || !aiSuggestionBaseline || !aiSelection) return
+    const result = applyAiSuggestionWithoutStaleOverwrite(
+      latestCreateDraft.current,
+      aiSuggestionBaseline,
+      aiSuggestion,
+      aiSelection,
+    )
+    latestCreateDraft.current = result.fields
+    setCreateDraft(result.fields)
+    if (result.conflicts.length) {
+      const labels: Record<keyof AiEditableFields, string> = {
+        descriptionZh: '中文描述',
+        descriptionEn: '英文描述',
+        tags: '标签',
+        aliasesZh: '中文别名',
+        aliasesEn: '英文别名',
+      }
+      setAiSuggestionBaseline(latestCreateDraft.current)
+      setAiSelection({
+        descriptionZh: false,
+        descriptionEn: false,
+        tags: false,
+        aliasesZh: false,
+        aliasesEn: false,
+      })
+      setAiCompletionError(
+        `以下字段在预览后已修改，未覆盖：${result.conflicts.map((key) => labels[key]).join('、')}。`,
+      )
+    } else {
+      setAiSuggestion(null)
+      setAiSuggestionBaseline(null)
+      setAiSelection(null)
+      setAiCompletionError('')
+    }
+  }
+
   function openCreateDialog() {
     captureModalOpener()
     setCreateOpen(true)
@@ -829,6 +1210,11 @@ export function App() {
   }
 
   function closeCreateDialog() {
+    cancelAiCompletion()
+    setAiCompletionError('')
+    setAiSuggestion(null)
+    setAiSuggestionBaseline(null)
+    setAiSelection(null)
     setCreateOpen(false)
     setEditingPromptId(null)
     setCopyingPromptId(null)
@@ -880,7 +1266,11 @@ export function App() {
   }
 
   function updateCreateDraft(field: keyof CreatePromptDraft, value: string) {
-    setCreateDraft((current) => ({ ...current, [field]: value }))
+    setCreateDraft((current) => {
+      const next = { ...current, [field]: value }
+      latestCreateDraft.current = next
+      return next
+    })
     setCreateError('')
   }
 
@@ -1270,6 +1660,9 @@ export function App() {
                             ? `找到 ${visiblePrompts.length} 个词条`
                             : `正在展示 ${promptConcepts.length} 个精选词条`}
                 </span>
+                <button type="button" className="ai-settings-button" onClick={openAiSettings}>
+                  AI 设置
+                </button>
                 <button type="button" className="import-export-button" onClick={openImportDialog}>
                   导入与导出
                 </button>
@@ -1595,6 +1988,26 @@ export function App() {
           </aside>
         </div>
       </div>
+      {aiSettingsOpen ? (
+        <AiSettingsDialog
+          dialogRef={aiSettingsDialog}
+          initialFocusRef={aiSettingsInitialFocus}
+          draft={aiSettingsDraft}
+          apiKey={aiApiKey}
+          hasKey={aiHasKey}
+          busy={aiSettingsBusy}
+          status={aiSettingsStatus}
+          error={aiSettingsError}
+          onClose={closeAiSettings}
+          onProviderChange={changeAiProvider}
+          onDraftChange={updateAiSettingsDraft}
+          onApiKeyChange={setAiApiKey}
+          onCheckKey={checkAiApiKey}
+          onClearKey={clearAiApiKey}
+          onTest={testAiConnection}
+          onSave={saveAiSettings}
+        />
+      ) : null}
       {importOpen ? (
         <div className="dialog-backdrop">
           <section
@@ -1935,6 +2348,29 @@ export function App() {
                   onChange={(event) => updateCreateDraft('aliasesEn', event.target.value)}
                 />
               </label>
+              <AiCompletionPanel
+                mode={aiMode}
+                completing={aiCompleting}
+                enabled={Boolean(
+                  createDraft.zh.trim() &&
+                  createDraft.en.trim() &&
+                  createDraft.categoryId &&
+                  !validateAiProviderConfig(aiConfig),
+                )}
+                error={aiCompletionError}
+                suggestion={aiSuggestion}
+                selection={aiSelection}
+                onModeChange={setAiMode}
+                onComplete={requestAiCompletion}
+                onCancel={cancelAiCompletion}
+                onSelectionChange={setAiSelection}
+                onApply={applySelectedAiSuggestion}
+                onDiscard={() => {
+                  setAiSuggestion(null)
+                  setAiSuggestionBaseline(null)
+                  setAiSelection(null)
+                }}
+              />
               {createError ? <p role="alert">{createError}</p> : null}
               <div className="create-dialog-actions">
                 <button type="button" onClick={closeCreateDialog}>

@@ -193,6 +193,7 @@ describe('JSONL prompt import tracer', () => {
     await user.click(screen.getByRole('button', { name: '导入与导出' }))
     const dialog = screen.getByRole('dialog', { name: '导入与导出' })
     await user.upload(within(dialog).getByLabelText('选择 JSONL 文件'), jsonlFile())
+    await within(dialog).findByText('霓虹雨夜')
     const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
