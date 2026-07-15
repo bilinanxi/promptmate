@@ -27,8 +27,8 @@
     },
     "zh": { "type": "string", "minLength": 1 },
     "en": { "type": "string", "minLength": 1 },
-    "description_zh": { "type": "string", "minLength": 1 },
-    "description_en": { "type": "string", "minLength": 1 },
+    "description_zh": { "type": "string" },
+    "description_en": { "type": "string" },
     "category_id": {
       "type": "string",
       "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"

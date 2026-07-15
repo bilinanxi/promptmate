@@ -44,6 +44,21 @@ describe('user prompt storage', () => {
     expect(USER_PROMPTS_STORAGE_KEY).toBe('promptmate:user-prompts')
   })
 
+  it('roundtrips a schema-complete prompt with empty optional descriptions and metadata', () => {
+    const storage = memoryStorage()
+    const minimalPrompt: PromptConcept = {
+      ...imagePrompt,
+      description_zh: '',
+      description_en: '',
+      tags: [],
+      aliases_zh: [],
+      aliases_en: [],
+    }
+
+    expect(saveUserPrompts(storage, [minimalPrompt])).toBe(true)
+    expect(loadUserPrompts(storage)).toEqual([minimalPrompt])
+  })
+
   it.each([
     ['malformed JSON', '{'],
     ['wrong root', '[]'],

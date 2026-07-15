@@ -72,8 +72,10 @@ describe('edit user prompt', () => {
 
     expect(within(dialog).getByRole('textbox', { name: '中文名称' })).toHaveValue('种子肖像')
     expect(within(dialog).getByRole('textbox', { name: '英文名称' })).toHaveValue('Seeded Portrait')
-    expect(within(dialog).getByRole('textbox', { name: '中文描述' })).toHaveValue('原始中文描述')
-    expect(within(dialog).getByRole('textbox', { name: '英文描述' })).toHaveValue(
+    expect(within(dialog).getByRole('textbox', { name: '中文描述（可选）' })).toHaveValue(
+      '原始中文描述',
+    )
+    expect(within(dialog).getByRole('textbox', { name: '英文描述（可选）' })).toHaveValue(
       'original English description',
     )
     expect(within(dialog).getByRole('combobox', { name: '分类' })).toHaveValue('people-subjects')
@@ -113,8 +115,8 @@ describe('edit user prompt', () => {
     }
     await replace('中文名称', '  更新肖像  ')
     await replace('英文名称', '  Updated Portrait  ')
-    await replace('中文描述', '  更新中文描述  ')
-    await replace('英文描述', '  updated English description  ')
+    await replace('中文描述（可选）', '  更新中文描述  ')
+    await replace('英文描述（可选）', '  updated English description  ')
     await replace('标签（可选）', ' 新标签， 新标签, 第二标签 ')
     await replace('中文别名（可选）', ' 新中文别名, 新中文别名 ')
     await replace('英文别名（可选）', ' new alias, second alias ')
@@ -150,6 +152,24 @@ describe('edit user prompt', () => {
     expect(screen.queryByRole('button', { name: /^更新肖像，/ })).not.toBeInTheDocument()
   }, 15_000)
 
+  it('clears both optional descriptions while preserving stable prompt fields', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '编辑 种子肖像' }))
+    const dialog = screen.getByRole('dialog', { name: '编辑词条' })
+    await user.clear(within(dialog).getByRole('textbox', { name: '中文描述（可选）' }))
+    await user.clear(within(dialog).getByRole('textbox', { name: '英文描述（可选）' }))
+    await user.click(within(dialog).getByRole('button', { name: '保存修改' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!).prompts[0]).toEqual({
+      ...seededPrompt,
+      description_zh: '',
+      description_en: '',
+    })
+  })
+
   it('rejects required and other-record duplicates while excluding the edited record itself', async () => {
     const other = { ...seededPrompt, id: 'user-other', zh: '其他词条', en: 'Other Prompt' }
     seed([seededPrompt, other])
@@ -161,7 +181,7 @@ describe('edit user prompt', () => {
     const zh = within(dialog).getByRole('textbox', { name: '中文名称' })
     await user.clear(zh)
     await user.click(within(dialog).getByRole('button', { name: '保存修改' }))
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('请填写所有必填项')
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请填写中文名称、英文名称和分类。')
 
     await user.type(zh, seededPrompt.zh)
     await user.click(within(dialog).getByRole('button', { name: '保存修改' }))

@@ -605,15 +605,9 @@ export function App() {
       closeCreateDialog()
       return
     }
-    const required = [
-      createDraft.zh,
-      createDraft.en,
-      createDraft.descriptionZh,
-      createDraft.descriptionEn,
-      createDraft.categoryId,
-    ]
+    const required = [createDraft.zh, createDraft.en, createDraft.categoryId]
     if (required.some((value) => !value.trim())) {
-      setCreateError('请填写所有必填项。')
+      setCreateError('请填写中文名称、英文名称和分类。')
       return
     }
 
@@ -1326,14 +1320,14 @@ export function App() {
                 />
               </label>
               <label>
-                中文描述
+                中文描述（可选）
                 <textarea
                   value={createDraft.descriptionZh}
                   onChange={(event) => updateCreateDraft('descriptionZh', event.target.value)}
                 />
               </label>
               <label>
-                英文描述
+                英文描述（可选）
                 <textarea
                   value={createDraft.descriptionEn}
                   onChange={(event) => updateCreateDraft('descriptionEn', event.target.value)}

@@ -9,6 +9,42 @@ import { USER_PROMPTS_STORAGE_KEY } from './features/prompt-library/userPromptSt
 beforeEach(() => localStorage.clear())
 
 describe('create user prompt', () => {
+  it('creates and durably stores a prompt with only bilingual names and category', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '新建词条' }))
+    expect(screen.getByRole('textbox', { name: '中文描述（可选）' })).toHaveValue('')
+    expect(screen.getByRole('textbox', { name: '英文描述（可选）' })).toHaveValue('')
+    await user.type(screen.getByRole('textbox', { name: '中文名称' }), '极简词条')
+    await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'Minimal Prompt')
+    await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')
+    await user.click(screen.getByRole('button', { name: '创建词条' }))
+
+    expect(screen.queryByText('请填写所有必填项。')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!)).toEqual({
+      version: 1,
+      prompts: [
+        {
+          schema_version: '1.0',
+          id: 'user-minimal-prompt',
+          zh: '极简词条',
+          en: 'Minimal Prompt',
+          description_zh: '',
+          description_en: '',
+          category_id: 'people-subjects',
+          tags: [],
+          aliases_zh: [],
+          aliases_en: [],
+          media_types: ['image'],
+          source: 'user',
+          status: 'approved',
+        },
+      ],
+    })
+  })
+
   it('opens an accessible active-media dialog and cancels without mutation', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -61,13 +97,13 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
 
     await user.click(screen.getByRole('button', { name: '创建词条' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('请填写所有必填项')
+    expect(screen.getByRole('alert')).toHaveTextContent('请填写中文名称、英文名称和分类。')
     expect(screen.getByRole('dialog')).toBeVisible()
 
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '  年轻女性  ')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'new subject')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '新描述')
-    await user.type(screen.getByRole('textbox', { name: '英文描述' }), 'new description')
+    await user.type(screen.getByRole('textbox', { name: '中文描述（可选）' }), '新描述')
+    await user.type(screen.getByRole('textbox', { name: '英文描述（可选）' }), 'new description')
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')
     await user.click(screen.getByRole('button', { name: '创建词条' }))
 
@@ -82,8 +118,11 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '  柔光肖像  ')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), '  Crème Portrait  ')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '  柔和的原创肖像  ')
-    await user.type(screen.getByRole('textbox', { name: '英文描述' }), '  original soft portrait  ')
+    await user.type(screen.getByRole('textbox', { name: '中文描述（可选）' }), '  柔和的原创肖像  ')
+    await user.type(
+      screen.getByRole('textbox', { name: '英文描述（可选）' }),
+      '  original soft portrait  ',
+    )
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')
     await user.type(screen.getByRole('textbox', { name: '标签（可选）' }), ' 人像, 柔光， 人像 ,, ')
     await user.type(
@@ -138,8 +177,8 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '隔离图片词条')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'isolated image prompt')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '只属于图片')
-    await user.type(screen.getByRole('textbox', { name: '英文描述' }), 'image only')
+    await user.type(screen.getByRole('textbox', { name: '中文描述（可选）' }), '只属于图片')
+    await user.type(screen.getByRole('textbox', { name: '英文描述（可选）' }), 'image only')
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')
     await user.click(screen.getByRole('button', { name: '创建词条' }))
 
@@ -149,8 +188,8 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '隔离视频词条')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'isolated video prompt')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '只属于视频')
-    await user.type(screen.getByRole('textbox', { name: '英文描述' }), 'video only')
+    await user.type(screen.getByRole('textbox', { name: '中文描述（可选）' }), '只属于视频')
+    await user.type(screen.getByRole('textbox', { name: '英文描述（可选）' }), 'video only')
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'camera-movement')
     await user.click(screen.getByRole('button', { name: '创建词条' }))
 
@@ -170,8 +209,11 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '重启后词条')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'remounted prompt')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '重启后仍显示')
-    await user.type(screen.getByRole('textbox', { name: '英文描述' }), 'visible after remount')
+    await user.type(screen.getByRole('textbox', { name: '中文描述（可选）' }), '重启后仍显示')
+    await user.type(
+      screen.getByRole('textbox', { name: '英文描述（可选）' }),
+      'visible after remount',
+    )
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')
     await user.click(screen.getByRole('button', { name: '创建词条' }))
 
@@ -215,9 +257,9 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '仅会话词条')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'session only prompt')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '写入失败后仍可见')
+    await user.type(screen.getByRole('textbox', { name: '中文描述（可选）' }), '写入失败后仍可见')
     await user.type(
-      screen.getByRole('textbox', { name: '英文描述' }),
+      screen.getByRole('textbox', { name: '英文描述（可选）' }),
       'visible after write failure',
     )
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')
@@ -245,9 +287,12 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '新建词条' }))
     await user.type(screen.getByRole('textbox', { name: '中文名称' }), '受限会话词条')
     await user.type(screen.getByRole('textbox', { name: '英文名称' }), 'restricted session prompt')
-    await user.type(screen.getByRole('textbox', { name: '中文描述' }), '存储不可访问时仍可见')
     await user.type(
-      screen.getByRole('textbox', { name: '英文描述' }),
+      screen.getByRole('textbox', { name: '中文描述（可选）' }),
+      '存储不可访问时仍可见',
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: '英文描述（可选）' }),
       'visible without storage access',
     )
     await user.selectOptions(screen.getByRole('combobox', { name: '分类' }), 'people-subjects')

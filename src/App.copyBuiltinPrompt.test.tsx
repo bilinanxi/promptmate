@@ -46,10 +46,10 @@ describe('copy builtin prompt then edit', () => {
     const dialog = screen.getByRole('dialog', { name: '复制并编辑词条' })
     expect(within(dialog).getByRole('textbox', { name: '中文名称' })).toHaveValue('年轻女性')
     expect(within(dialog).getByRole('textbox', { name: '英文名称' })).toHaveValue('young woman')
-    expect(within(dialog).getByRole('textbox', { name: '中文描述' })).toHaveValue(
+    expect(within(dialog).getByRole('textbox', { name: '中文描述（可选）' })).toHaveValue(
       '适合人像、时尚和叙事画面的通用主体。',
     )
-    expect(within(dialog).getByRole('textbox', { name: '英文描述' })).toHaveValue(
+    expect(within(dialog).getByRole('textbox', { name: '英文描述（可选）' })).toHaveValue(
       'A versatile subject for portraits, fashion, and narrative scenes.',
     )
     expect(within(dialog).getByRole('combobox', { name: '分类' })).toHaveValue('people-subjects')
@@ -102,6 +102,46 @@ describe('copy builtin prompt then edit', () => {
     expect(screen.queryByRole('button', { name: /^不应保存，/ })).not.toBeInTheDocument()
   })
 
+  it('saves a copy after clearing every optional field', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '复制并编辑 年轻女性' }))
+    const dialog = screen.getByRole('dialog', { name: '复制并编辑词条' })
+    const replace = async (name: string, value: string) => {
+      const field = within(dialog).getByRole('textbox', { name })
+      await user.clear(field)
+      if (value) await user.type(field, value)
+    }
+
+    await replace('中文名称', '最小副本')
+    await replace('英文名称', 'Minimal Copy')
+    for (const name of [
+      '中文描述（可选）',
+      '英文描述（可选）',
+      '标签（可选）',
+      '中文别名（可选）',
+      '英文别名（可选）',
+    ]) {
+      await replace(name, '')
+    }
+    await user.click(within(dialog).getByRole('button', { name: '保存到我的词条' }))
+
+    const stored = JSON.parse(localStorage.getItem(USER_PROMPTS_STORAGE_KEY)!).prompts.at(-1)
+    expect(stored).toMatchObject({
+      zh: '最小副本',
+      en: 'Minimal Copy',
+      description_zh: '',
+      description_en: '',
+      tags: [],
+      aliases_zh: [],
+      aliases_en: [],
+      media_types: ['image'],
+      source: 'user',
+      status: 'approved',
+    })
+  }, 15_000)
+
   it('rejects unchanged builtin names, then creates a parsed manageable user copy without changing its origin', async () => {
     const user = userEvent.setup()
     const originBefore = structuredClone(builtinPromptsByMedia.image[0])
@@ -120,8 +160,8 @@ describe('copy builtin prompt then edit', () => {
     }
     await replace('中文名称', '  年轻女性副本  ')
     await replace('英文名称', '  Young Woman Copy  ')
-    await replace('中文描述', '  自定义中文描述  ')
-    await replace('英文描述', '  custom English description  ')
+    await replace('中文描述（可选）', '  自定义中文描述  ')
+    await replace('英文描述（可选）', '  custom English description  ')
     await replace('标签（可选）', ' 人像，副本, 人像 ')
     await replace('中文别名（可选）', ' 副本别名, 副本别名，另一个别名 ')
     await replace('英文别名（可选）', ' copy alias, second alias ')
