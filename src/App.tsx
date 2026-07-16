@@ -4,6 +4,7 @@ import {
   defaultAiProviderPresetConfig,
   defaultAiProviderConfig,
   loadAiProviderConfig,
+  normalizeAiProviderConfig,
   saveAiProviderConfig,
   validateAiProviderConfig,
   type AiProviderConfig,
@@ -1065,11 +1066,11 @@ export function App() {
   }
 
   function normalizedAiDraft(): AiProviderConfig {
-    return {
+    return normalizeAiProviderConfig({
       ...aiSettingsDraft,
       baseUrl: aiSettingsDraft.baseUrl.trim().replace(/\/+$/, ''),
       model: aiSettingsDraft.model.trim(),
-    }
+    })
   }
 
   async function checkAiApiKey() {

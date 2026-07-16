@@ -55,6 +55,7 @@ export interface AiProviderPreset {
   group: AiProviderPresetGroup
   kind: AiProviderKind
   baseUrl: string
+  defaultModel?: string
 }
 
 export const AI_PROVIDER_PRESET_GROUP_LABELS: Record<AiProviderPresetGroup, string> = {
@@ -72,6 +73,7 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     group: 'domestic-model',
     kind: 'openai-compatible',
     baseUrl: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-v4-pro',
   },
   {
     id: 'minimax-cn',
@@ -260,7 +262,12 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
 export function defaultAiProviderPresetConfig(id: AiProviderPresetId): AiProviderConfig {
   const preset = AI_PROVIDER_PRESETS.find((candidate) => candidate.id === id)
   if (!preset) return defaultAiProviderConfig('openai-compatible')
-  return { version: 1, kind: preset.kind, baseUrl: preset.baseUrl, model: '' }
+  return {
+    version: 1,
+    kind: preset.kind,
+    baseUrl: preset.baseUrl,
+    model: preset.defaultModel ?? '',
+  }
 }
 
 function normalizedEndpoint(value: string): string {
@@ -277,6 +284,21 @@ export function resolveAiProviderPresetId(config: AiProviderConfig): AiProviderP
         normalizedEndpoint(preset.baseUrl) === endpoint,
     )?.id ?? 'custom'
   )
+}
+
+const DEEPSEEK_MODEL_IDS = [
+  'deepseek-v4-pro',
+  'deepseek-v4-flash',
+  'deepseek-chat',
+  'deepseek-reasoner',
+] as const
+
+export function normalizeAiProviderConfig(config: AiProviderConfig): AiProviderConfig {
+  if (resolveAiProviderPresetId(config) !== 'deepseek') return config
+  const model = DEEPSEEK_MODEL_IDS.find(
+    (candidate) => candidate.toLowerCase() === config.model.toLowerCase(),
+  )
+  return model && model !== config.model ? { ...config, model } : config
 }
 
 const defaults: Record<AiProviderKind, AiProviderConfig> = {
@@ -361,7 +383,7 @@ export function loadAiProviderConfig(storage: StorageReader): AiProviderConfig {
     const raw = storage.getItem(AI_PROVIDER_STORAGE_KEY)
     if (raw === null) return fallback
     const value: unknown = JSON.parse(raw)
-    return isConfig(value) ? value : fallback
+    return isConfig(value) ? normalizeAiProviderConfig(value) : fallback
   } catch {
     return fallback
   }

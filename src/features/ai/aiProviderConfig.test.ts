@@ -5,6 +5,7 @@ import {
   defaultAiProviderPresetConfig,
   defaultAiProviderConfig,
   loadAiProviderConfig,
+  normalizeAiProviderConfig,
   resolveAiProviderPresetId,
   saveAiProviderConfig,
   validateAiProviderConfig,
@@ -37,7 +38,12 @@ describe('AI provider config', () => {
       ]),
     )
     expect(defaultAiProviderPresetConfig('minimax-cn').baseUrl).toBe('https://api.minimaxi.com/v1')
-    expect(defaultAiProviderPresetConfig('deepseek').baseUrl).toBe('https://api.deepseek.com/v1')
+    expect(defaultAiProviderPresetConfig('deepseek')).toEqual({
+      version: 1,
+      kind: 'openai-compatible',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-pro',
+    })
     expect(defaultAiProviderPresetConfig('zhipu').baseUrl).toBe(
       'https://open.bigmodel.cn/api/paas/v4',
     )
@@ -65,6 +71,26 @@ describe('AI provider config', () => {
     expect(
       resolveAiProviderPresetId({ ...preset, baseUrl: 'https://gateway.example.com/v1' }),
     ).toBe('custom')
+  })
+
+  it('canonicalizes official DeepSeek model identifiers without changing custom models', () => {
+    const miscapitalized = {
+      version: 1 as const,
+      kind: 'openai-compatible' as const,
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'DeepSeek-V4-Pro',
+    }
+
+    expect(normalizeAiProviderConfig(miscapitalized).model).toBe('deepseek-v4-pro')
+    expect(
+      normalizeAiProviderConfig({
+        ...miscapitalized,
+        baseUrl: 'https://gateway.example.com/v1',
+      }).model,
+    ).toBe('DeepSeek-V4-Pro')
+
+    const storage = { getItem: () => JSON.stringify(miscapitalized) }
+    expect(loadAiProviderConfig(storage).model).toBe('deepseek-v4-pro')
   })
 
   it('uses safe provider-specific defaults without embedding credentials', () => {
