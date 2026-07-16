@@ -60,6 +60,23 @@ describe('AI native client', () => {
     expect(JSON.stringify(invoke.mock.calls[0])).not.toContain(testCredential)
   })
 
+  it('passes only the composed prompt and non-secret settings to basket optimization', async () => {
+    const invoke = vi.fn().mockResolvedValue('优化后的提示词')
+    const client = createAiNativeClient({ isTauri: () => true, invoke })
+
+    await expect(
+      client.optimize(config, '雨夜街道，中近景。', 'zh', 'balanced', 'basket-1'),
+    ).resolves.toBe('优化后的提示词')
+    expect(invoke).toHaveBeenCalledWith('optimize_composed_prompt', {
+      config,
+      prompt: '雨夜街道，中近景。',
+      language: 'zh',
+      mode: 'balanced',
+      requestId: 'basket-1',
+    })
+    expect(JSON.stringify(invoke.mock.calls[0])).not.toContain(testCredential)
+  })
+
   it('fails explicitly instead of attempting network calls in browser preview', async () => {
     const invoke = vi.fn()
     const client = createAiNativeClient({ isTauri: () => false, invoke })

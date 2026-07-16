@@ -351,6 +351,81 @@ async fn perform_completion(
     Ok(suggestion)
 }
 
+pub fn parse_optimized_prompt(content: &str) -> Result<String, String> {
+    if content.len() > MAX_COMPLETION_BYTES {
+        return Err("AI 优化结果过大。".into());
+    }
+    let value = content.trim();
+    if value.is_empty()
+        || value
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return Err("AI 返回了无效的优化结果。".into());
+    }
+    Ok(value.to_owned())
+}
+
+async fn perform_prompt_optimization(
+    config: AiProviderConfig,
+    prompt: String,
+    language: String,
+    mode: String,
+) -> Result<String, String> {
+    if prompt.trim().is_empty()
+        || prompt.len() > 32_768
+        || !matches!(language.as_str(), "zh" | "en")
+    {
+        return Err("待优化提示词无效或过大。".into());
+    }
+    let base = validate_config(&config)?;
+    let key = api_key(&config, &base)?;
+    let language_instruction = if language == "zh" {
+        "Write the optimized prompt in Chinese."
+    } else {
+        "Write the optimized prompt in English."
+    };
+    let system_content = format!(
+        "You optimize an image or video generation prompt. Preserve its intent and factual constraints, improve clarity, visual specificity, composition, lighting, style, and coherence without inventing conflicting subjects. {language_instruction} Return only the optimized prompt as plain text, without explanations, labels, quotes, or Markdown fences."
+    );
+    let request = json!({
+        "model": config.model,
+        "temperature": temperature(&mode)?,
+        "messages": [
+            { "role": "system", "content": system_content },
+            { "role": "user", "content": prompt }
+        ]
+    });
+    let response = authorized(
+        client()?
+            .post(endpoint(&base, "chat/completions")?)
+            .json(&request),
+        key.as_deref(),
+    )
+    .send()
+    .await
+    .map_err(|_| "AI 优化请求失败。".to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("AI 服务返回 HTTP {}。", status.as_u16()));
+    }
+    let body = bounded_body(response).await?;
+    let value: Value = serde_json::from_slice(&body).map_err(|_| "AI 服务返回了无效 JSON。")?;
+    let content = value
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "AI 服务响应缺少优化内容。".to_string())?;
+    let optimized = parse_optimized_prompt(content)?;
+    if key
+        .as_deref()
+        .filter(|secret| !secret.is_empty())
+        .is_some_and(|secret| optimized.contains(secret))
+    {
+        return Err("AI 服务返回了不安全的优化内容。".into());
+    }
+    Ok(optimized)
+}
+
 fn valid_request_id(request_id: &str) -> bool {
     !request_id.is_empty()
         && request_id.len() <= 100
@@ -463,6 +538,22 @@ pub async fn complete_prompt_fields(
     let _guard = RequestGuard::new(request_id, registered.generation);
     tokio::select! {
         result = perform_completion(config, input, mode) => result,
+        _ = registered.receiver => Err("AI 请求已取消。".into()),
+    }
+}
+
+#[tauri::command]
+pub async fn optimize_composed_prompt(
+    config: AiProviderConfig,
+    prompt: String,
+    language: String,
+    mode: String,
+    request_id: String,
+) -> Result<String, String> {
+    let registered = register_request(&request_id)?;
+    let _guard = RequestGuard::new(request_id, registered.generation);
+    tokio::select! {
+        result = perform_prompt_optimization(config, prompt, language, mode) => result,
         _ = registered.receiver => Err("AI 请求已取消。".into()),
     }
 }

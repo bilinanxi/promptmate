@@ -10,6 +10,7 @@ const aiMocks = vi.hoisted(() => ({
   hasApiKey: vi.fn(),
   testConnection: vi.fn(),
   complete: vi.fn(),
+  optimize: vi.fn(),
   cancel: vi.fn(),
 }))
 
@@ -41,9 +42,71 @@ beforeEach(() => {
     aliases_zh: ['夜雨肖像'],
     aliases_en: ['rain portrait'],
   })
+  aiMocks.optimize.mockResolvedValue('电影感年轻女性，柔和逆光，细腻肤质。')
 })
 
 describe('AI provider settings', () => {
+  it('switches between grouped domestic and international platform presets', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'AI 设置' }))
+    const dialog = screen.getByRole('dialog', { name: 'AI 提供商设置' })
+    const provider = within(dialog).getByRole('combobox', { name: 'AI 提供商' })
+    expect(within(provider).getByRole('option', { name: 'DeepSeek' })).toBeInTheDocument()
+    expect(within(provider).getByRole('option', { name: 'OpenRouter' })).toBeInTheDocument()
+
+    await user.selectOptions(provider, 'minimax-cn')
+    expect(within(dialog).getByRole('textbox', { name: '服务地址' })).toHaveValue(
+      'https://api.minimaxi.com/v1',
+    )
+    await user.selectOptions(provider, 'google-gemini')
+    expect(within(dialog).getByRole('textbox', { name: '服务地址' })).toHaveValue(
+      'https://generativelanguage.googleapis.com/v1beta/openai',
+    )
+  })
+
+  it('shows remote credential guidance without describing hosted providers as local', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'AI 设置' }))
+    const dialog = screen.getByRole('dialog', { name: 'AI 提供商设置' })
+    const provider = within(dialog).getByRole('combobox', { name: 'AI 提供商' })
+    const keyInput = within(dialog).getByLabelText('API Key（可选）')
+
+    await user.selectOptions(provider, 'deepseek')
+    expect(keyInput).toHaveAttribute('placeholder', '远程服务通常需要 API Key')
+    await user.selectOptions(provider, 'ollama')
+    expect(keyInput).toHaveAttribute('placeholder', '本地服务通常可以留空')
+  })
+
+  it('keeps the entered key visible for the current session and offers an eye toggle', async () => {
+    const credential = ['visible', 'session', 'credential'].join('-')
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'AI 设置' }))
+    let dialog = screen.getByRole('dialog', { name: 'AI 提供商设置' })
+    await user.clear(within(dialog).getByRole('textbox', { name: '模型名称' }))
+    await user.type(within(dialog).getByRole('textbox', { name: '模型名称' }), 'example-model')
+    const keyInput = within(dialog).getByLabelText('API Key（可选）')
+    expect(keyInput).toHaveAttribute('type', 'text')
+    await user.type(keyInput, credential)
+    await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
+
+    expect(keyInput).toHaveValue(credential)
+    await user.click(within(dialog).getByRole('button', { name: '隐藏 API Key' }))
+    expect(keyInput).toHaveAttribute('type', 'password')
+    await user.click(within(dialog).getByRole('button', { name: '显示 API Key' }))
+    expect(keyInput).toHaveAttribute('type', 'text')
+
+    await user.click(within(dialog).getByRole('button', { name: '关闭 AI 提供商设置' }))
+    await user.click(screen.getByRole('button', { name: 'AI 设置' }))
+    dialog = screen.getByRole('dialog', { name: 'AI 提供商设置' })
+    expect(within(dialog).getByLabelText('API Key（可选）')).toHaveValue(credential)
+  })
+
   it('stores only non-secret config and saves the key through Windows credential commands', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -276,5 +339,80 @@ describe('AI field completion', () => {
     expect(screen.getByRole('textbox', { name: '英文描述（可选）' })).toHaveValue('用户稍后填写')
     expect(screen.getByRole('alert')).toHaveTextContent('英文描述')
     expect(within(preview).getByRole('checkbox', { name: '采用英文描述' })).not.toBeChecked()
+  })
+})
+
+describe('inspiration basket AI optimization', () => {
+  function configureProvider() {
+    localStorage.setItem(
+      AI_PROVIDER_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        kind: 'openai-compatible',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'example-model',
+      }),
+    )
+  }
+
+  it('optimizes the editable composed prompt and can restore the previous text', async () => {
+    configureProvider()
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    expect(editor).toHaveValue('年轻女性。')
+    await user.click(screen.getByRole('button', { name: 'AI 优化' }))
+
+    expect(aiMocks.optimize).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'example-model' }),
+      '年轻女性。',
+      'zh',
+      'balanced',
+      expect.stringMatching(/^basket-/),
+    )
+    expect(editor).toHaveValue('电影感年轻女性，柔和逆光，细腻肤质。')
+    expect(screen.getByRole('status')).toHaveTextContent('AI 优化已应用')
+
+    await user.click(screen.getByRole('button', { name: '恢复优化前内容' }))
+    expect(editor).toHaveValue('年轻女性。')
+  })
+
+  it('supports native cancellation and never overwrites edits made while pending', async () => {
+    configureProvider()
+    const pending = deferred<string>()
+    aiMocks.optimize.mockReturnValueOnce(pending.promise)
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    await user.click(screen.getByRole('button', { name: 'AI 优化' }))
+    const requestId = aiMocks.optimize.mock.calls[0][4]
+    await user.clear(editor)
+    await user.type(editor, '用户在等待时修改的内容')
+    await user.click(screen.getByRole('button', { name: '取消 AI 优化' }))
+
+    expect(aiMocks.cancel).toHaveBeenCalledWith(requestId)
+    await act(async () => {
+      pending.resolve('不应覆盖用户内容')
+      await pending.promise
+    })
+    expect(editor).toHaveValue('用户在等待时修改的内容')
+  })
+
+  it('keeps the composed prompt and shows a safe error when optimization fails', async () => {
+    configureProvider()
+    aiMocks.optimize.mockRejectedValueOnce(new Error('provider unavailable'))
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    await user.click(screen.getByRole('button', { name: 'AI 优化' }))
+
+    expect(editor).toHaveValue('年轻女性。')
+    expect(await screen.findByRole('alert')).toHaveTextContent('provider unavailable')
   })
 })

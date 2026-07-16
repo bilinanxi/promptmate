@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 
 import {
+  defaultAiProviderPresetConfig,
   defaultAiProviderConfig,
   loadAiProviderConfig,
   saveAiProviderConfig,
   validateAiProviderConfig,
   type AiProviderConfig,
-  type AiProviderKind,
+  type AiProviderPresetId,
 } from './features/ai/aiProviderConfig'
 import {
   aiNativeClient,
@@ -434,6 +435,10 @@ export function App() {
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
   const [editedOutput, setEditedOutput] = useState<string | null>(null)
   const [copyFeedback, setCopyFeedback] = useState<'idle' | 'success' | 'error'>('idle')
+  const [basketAiOptimizing, setBasketAiOptimizing] = useState(false)
+  const [basketAiError, setBasketAiError] = useState('')
+  const [basketAiStatus, setBasketAiStatus] = useState('')
+  const [basketAiOriginal, setBasketAiOriginal] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [categoryId, setCategoryId] = useState<string>()
   const [tag, setTag] = useState<string>()
@@ -448,6 +453,10 @@ export function App() {
   const aiCompletionAttempt = useRef(0)
   const aiCompletionPending = useRef(false)
   const aiCompletionRequestId = useRef<string | null>(null)
+  const basketAiAttempt = useRef(0)
+  const basketAiPending = useRef(false)
+  const basketAiRequestId = useRef<string | null>(null)
+  const latestBasketOutput = useRef('')
   const latestCreateDraft = useRef(createDraft)
   const createDialog = useRef<HTMLElement>(null)
   const createInitialFocus = useRef<HTMLInputElement>(null)
@@ -477,12 +486,18 @@ export function App() {
         void aiNativeClient.cancel(aiCompletionRequestId.current).catch(() => undefined)
         aiCompletionRequestId.current = null
       }
+      if (basketAiRequestId.current) {
+        void aiNativeClient.cancel(basketAiRequestId.current).catch(() => undefined)
+        basketAiRequestId.current = null
+      }
       aiSettingsAttempt.current += 1
       aiCompletionAttempt.current += 1
+      basketAiAttempt.current += 1
       exportSavePending.current = false
       reportSavePending.current = false
       aiSettingsPending.current = false
       aiCompletionPending.current = false
+      basketAiPending.current = false
     },
     [],
   )
@@ -529,6 +544,7 @@ export function App() {
   const output = selected.length
     ? `${selected.map((concept) => concept[language]).join(separator)}${ending}`
     : ''
+  latestBasketOutput.current = editedOutput ?? output
   const deleteTarget = userPrompts.find(
     (prompt) =>
       prompt.id === deletePromptId &&
@@ -598,6 +614,15 @@ export function App() {
   )
 
   useEffect(() => {
+    const requestId = basketAiRequestId.current
+    basketAiRequestId.current = null
+    if (requestId) void aiNativeClient.cancel(requestId).catch(() => undefined)
+    basketAiAttempt.current += 1
+    basketAiPending.current = false
+    setBasketAiOptimizing(false)
+    setBasketAiError('')
+    setBasketAiStatus('')
+    setBasketAiOriginal(null)
     if (preserveEditedOutput.current) {
       preserveEditedOutput.current = false
     } else {
@@ -661,6 +686,80 @@ export function App() {
     }
     setCopyFeedback('idle')
     setEditedOutput(value)
+  }
+
+  async function optimizeBasketOutput() {
+    if (basketAiPending.current) {
+      cancelBasketOptimization()
+      return
+    }
+    const prompt = latestBasketOutput.current
+    if (!prompt.trim()) return
+    if (validateAiProviderConfig(aiConfig)) {
+      setBasketAiError('请先在 AI 设置中配置有效的服务地址和模型。')
+      setBasketAiStatus('')
+      return
+    }
+
+    const attempt = ++basketAiAttempt.current
+    const requestId = `basket-${Date.now()}-${attempt}`
+    basketAiRequestId.current = requestId
+    basketAiPending.current = true
+    setBasketAiOptimizing(true)
+    setBasketAiError('')
+    setBasketAiStatus('')
+    setBasketAiOriginal(null)
+    try {
+      const optimized = await aiNativeClient.optimize(aiConfig, prompt, language, aiMode, requestId)
+      if (attempt !== basketAiAttempt.current) return
+      if (
+        typeof optimized !== 'string' ||
+        !optimized.trim() ||
+        optimized.length > 65_536 ||
+        Array.from(optimized).some((character) => {
+          const codePoint = character.codePointAt(0) ?? 0
+          return codePoint === 127 || (codePoint < 32 && ![9, 10, 13].includes(codePoint))
+        })
+      ) {
+        throw new Error('AI 返回了无效的优化结果。')
+      }
+      if (latestBasketOutput.current !== prompt) {
+        setBasketAiStatus('拼装内容已修改，AI 结果未覆盖。')
+        return
+      }
+      setBasketAiOriginal(prompt)
+      editOutput(optimized.trim())
+      setBasketAiStatus('AI 优化已应用，可继续编辑或复制。')
+    } catch (error) {
+      if (attempt === basketAiAttempt.current) {
+        setBasketAiError(safeAiError(error, aiApiKey))
+      }
+    } finally {
+      if (attempt === basketAiAttempt.current) {
+        if (basketAiRequestId.current === requestId) basketAiRequestId.current = null
+        basketAiPending.current = false
+        setBasketAiOptimizing(false)
+      }
+    }
+  }
+
+  function cancelBasketOptimization() {
+    const requestId = basketAiRequestId.current
+    basketAiRequestId.current = null
+    if (requestId) void aiNativeClient.cancel(requestId).catch(() => undefined)
+    basketAiAttempt.current += 1
+    basketAiPending.current = false
+    setBasketAiOptimizing(false)
+    setBasketAiError('')
+    setBasketAiStatus('已取消 AI 优化。')
+  }
+
+  function restoreBasketOutput() {
+    if (basketAiOriginal === null) return
+    editOutput(basketAiOriginal)
+    setBasketAiOriginal(null)
+    setBasketAiError('')
+    setBasketAiStatus('已恢复优化前内容。')
   }
 
   function mutateBasket(update: (current: string[]) => string[]) {
@@ -909,7 +1008,6 @@ export function App() {
     const attempt = ++aiSettingsAttempt.current
     aiSettingsPending.current = false
     setAiSettingsDraft(aiConfig)
-    setAiApiKey('')
     setAiHasKey(false)
     setAiSettingsBusy(false)
     setAiSettingsStatus('')
@@ -929,13 +1027,12 @@ export function App() {
     aiSettingsPending.current = false
     setAiSettingsBusy(false)
     setAiSettingsOpen(false)
-    setAiApiKey('')
     setAiSettingsStatus('')
     setAiSettingsError('')
   }
 
-  async function changeAiProvider(kind: AiProviderKind) {
-    const config = defaultAiProviderConfig(kind)
+  async function changeAiProvider(id: AiProviderPresetId) {
+    const config = defaultAiProviderPresetConfig(id)
     const attempt = ++aiSettingsAttempt.current
     aiSettingsPending.current = true
     setAiSettingsDraft(config)
@@ -1020,7 +1117,6 @@ export function App() {
       if (aiApiKey) await aiNativeClient.saveApiKey(config, aiApiKey)
       if (attempt !== aiSettingsAttempt.current) return
       if (aiApiKey) setAiHasKey(true)
-      setAiApiKey('')
       setAiSettingsStatus('设置已保存。API Key 仅保存在 Windows 凭据管理器中。')
     } catch (error) {
       if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error, aiApiKey))
@@ -1055,7 +1151,6 @@ export function App() {
         await aiNativeClient.saveApiKey(config, aiApiKey)
         if (attempt !== aiSettingsAttempt.current) return
         setAiHasKey(true)
-        setAiApiKey('')
       }
       const message = await aiNativeClient.testConnection(config)
       if (attempt === aiSettingsAttempt.current) setAiSettingsStatus(message)
@@ -1965,14 +2060,44 @@ export function App() {
                   从词库选择词条，这里会自动组合。
                 </output>
               )}
-              <button
-                type="button"
-                className="copy-button"
-                disabled={!selected.length || !(editedOutput ?? output).trim()}
-                onClick={copyOutput}
-              >
-                复制提示词
-              </button>
+              <div className="output-actions">
+                <button
+                  type="button"
+                  className="ai-optimize-button"
+                  disabled={!selected.length || !(editedOutput ?? output).trim()}
+                  onClick={optimizeBasketOutput}
+                >
+                  <span aria-hidden="true">✦</span>
+                  {basketAiOptimizing ? '取消 AI 优化' : 'AI 优化'}
+                </button>
+                <button
+                  type="button"
+                  className="copy-button"
+                  disabled={!selected.length || !(editedOutput ?? output).trim()}
+                  onClick={copyOutput}
+                >
+                  复制提示词
+                </button>
+              </div>
+              {basketAiOriginal !== null ? (
+                <button
+                  type="button"
+                  className="restore-output-button"
+                  onClick={restoreBasketOutput}
+                >
+                  恢复优化前内容
+                </button>
+              ) : null}
+              {basketAiError ? (
+                <p className="basket-ai-feedback error" role="alert">
+                  {basketAiError}
+                </p>
+              ) : null}
+              {basketAiStatus ? (
+                <p className="basket-ai-feedback success" role="status" aria-live="polite">
+                  {basketAiStatus}
+                </p>
+              ) : null}
               {copyFeedback === 'success' ? (
                 <p className="copy-feedback success" role="status" aria-live="polite">
                   已复制到剪贴板

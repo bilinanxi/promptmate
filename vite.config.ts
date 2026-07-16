@@ -12,5 +12,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     testTimeout: 15_000,
+    // App-level jsdom suites are CPU-heavy; bounding workers prevents timeout spillover
+    // from an unfinished test contaminating the next test's localStorage fixture.
+    maxWorkers: 2,
   },
 })

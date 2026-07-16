@@ -66,6 +66,13 @@ export interface AiNativeClient {
     mode: AiCreativityMode,
     requestId: string,
   ): Promise<AiFieldSuggestion>
+  optimize(
+    config: AiProviderConfig,
+    prompt: string,
+    language: 'zh' | 'en',
+    mode: AiCreativityMode,
+    requestId: string,
+  ): Promise<string>
   cancel(requestId: string): Promise<void>
 }
 
@@ -94,6 +101,14 @@ export function createAiNativeClient(
     testConnection: (config) => desktopOnly<string>('test_ai_provider', { config }),
     complete: (config, input, mode, requestId) =>
       desktopOnly<AiFieldSuggestion>('complete_prompt_fields', { config, input, mode, requestId }),
+    optimize: (config, prompt, language, mode, requestId) =>
+      desktopOnly<string>('optimize_composed_prompt', {
+        config,
+        prompt,
+        language,
+        mode,
+        requestId,
+      }),
     cancel: (requestId) => desktopOnly<void>('cancel_ai_request', { requestId }),
   }
 }

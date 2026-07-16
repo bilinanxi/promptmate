@@ -1,5 +1,12 @@
-import type { RefObject } from 'react'
-import type { AiProviderConfig, AiProviderKind } from './aiProviderConfig'
+import { useState, type RefObject } from 'react'
+import {
+  AI_PROVIDER_PRESETS,
+  AI_PROVIDER_PRESET_GROUP_LABELS,
+  resolveAiProviderPresetId,
+  type AiProviderConfig,
+  type AiProviderPresetGroup,
+  type AiProviderPresetId,
+} from './aiProviderConfig'
 
 interface AiSettingsDialogProps {
   dialogRef: RefObject<HTMLElement | null>
@@ -11,7 +18,7 @@ interface AiSettingsDialogProps {
   status: string
   error: string
   onClose(): void
-  onProviderChange(kind: AiProviderKind): void
+  onProviderChange(id: AiProviderPresetId): void
   onDraftChange(draft: AiProviderConfig): void
   onApiKeyChange(value: string): void
   onCheckKey(): void
@@ -38,6 +45,10 @@ export function AiSettingsDialog({
   onTest,
   onSave,
 }: AiSettingsDialogProps) {
+  const [apiKeyVisible, setApiKeyVisible] = useState(true)
+  const presetGroups = Object.keys(AI_PROVIDER_PRESET_GROUP_LABELS) as AiProviderPresetGroup[]
+  const isLocalProvider = draft.kind === 'ollama' || draft.kind === 'lm-studio'
+
   return (
     <div className="dialog-backdrop">
       <section
@@ -63,15 +74,24 @@ export function AiSettingsDialog({
             AI 提供商
             <select
               ref={initialFocusRef}
-              value={draft.kind}
+              value={resolveAiProviderPresetId(draft)}
               disabled={busy}
-              onChange={(event) => onProviderChange(event.target.value as AiProviderKind)}
+              onChange={(event) => onProviderChange(event.target.value as AiProviderPresetId)}
             >
-              <option value="openai-compatible">OpenAI-compatible</option>
-              <option value="ollama">Ollama</option>
-              <option value="lm-studio">LM Studio</option>
+              {presetGroups.map((group) => (
+                <optgroup key={group} label={AI_PROVIDER_PRESET_GROUP_LABELS[group]}>
+                  {AI_PROVIDER_PRESETS.filter((preset) => preset.group === group).map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </label>
+          <p className="provider-preset-hint">
+            已预设支持 OpenAI-compatible 接口的国内外主流模型与 API 平台；选择后自动填写服务地址。
+          </p>
           <label>
             服务地址
             <input
@@ -90,21 +110,49 @@ export function AiSettingsDialog({
           </label>
           <label>
             API Key（可选）
-            <input
-              type="password"
-              value={apiKey}
-              autoComplete="new-password"
-              spellCheck={false}
-              disabled={busy}
-              placeholder={hasKey ? '已安全保存；留空保持不变' : '本地服务通常可以留空'}
-              onChange={(event) => onApiKeyChange(event.target.value)}
-            />
+            <span className="api-key-input-wrap">
+              <input
+                type={apiKeyVisible ? 'text' : 'password'}
+                value={apiKey}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={busy}
+                placeholder={
+                  hasKey
+                    ? '已安全保存；输入框仅保留当前会话内容'
+                    : isLocalProvider
+                      ? '本地服务通常可以留空'
+                      : '远程服务通常需要 API Key'
+                }
+                onChange={(event) => onApiKeyChange(event.target.value)}
+              />
+              <button
+                type="button"
+                className="api-key-visibility"
+                aria-label={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+                title={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+                onClick={() => setApiKeyVisible((visible) => !visible)}
+              >
+                {apiKeyVisible ? (
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+                    <circle cx="12" cy="12" r="2.6" />
+                  </svg>
+                ) : (
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M4 4l16 16" />
+                    <path d="M9.4 6.5A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a14.3 14.3 0 0 1-2.6 3.2M14.6 17.5c-.8.3-1.7.5-2.6.5-6 0-9.5-6-9.5-6a14.7 14.7 0 0 1 3.1-3.6" />
+                  </svg>
+                )}
+              </button>
+            </span>
           </label>
           <p className="credential-state">
             {hasKey ? '当前服务已保存 API Key。' : '当前服务没有已保存的 API Key。'}
           </p>
           <p className="ai-security-note">
-            PromptMate 不会把 API Key 写入 localStorage、导出包或日志。远程 HTTP 地址会被拒绝。
+            输入框内容仅保留在当前应用会话；API Key 仍只写入 Windows 凭据管理器，不进入
+            localStorage、导出包或日志。远程 HTTP 地址会被拒绝。
           </p>
           {error ? <p role="alert">{error}</p> : null}
           {status ? (

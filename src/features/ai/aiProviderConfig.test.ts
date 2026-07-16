@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   AI_PROVIDER_STORAGE_KEY,
+  AI_PROVIDER_PRESETS,
+  defaultAiProviderPresetConfig,
   defaultAiProviderConfig,
   loadAiProviderConfig,
+  resolveAiProviderPresetId,
   saveAiProviderConfig,
   validateAiProviderConfig,
 } from './aiProviderConfig'
@@ -15,6 +18,55 @@ const openAi = {
 }
 
 describe('AI provider config', () => {
+  it('offers grouped domestic and international model and API platform presets', () => {
+    expect(AI_PROVIDER_PRESETS.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([
+        'deepseek',
+        'minimax-cn',
+        'zhipu',
+        'alibaba-bailian',
+        'siliconflow',
+        'openai',
+        'google-gemini',
+        'xai',
+        'openrouter',
+        'groq',
+        'ollama',
+        'lm-studio',
+        'custom',
+      ]),
+    )
+    expect(defaultAiProviderPresetConfig('minimax-cn').baseUrl).toBe('https://api.minimaxi.com/v1')
+    expect(defaultAiProviderPresetConfig('deepseek').baseUrl).toBe('https://api.deepseek.com/v1')
+    expect(defaultAiProviderPresetConfig('zhipu').baseUrl).toBe(
+      'https://open.bigmodel.cn/api/paas/v4',
+    )
+    expect(defaultAiProviderPresetConfig('alibaba-bailian').baseUrl).toBe(
+      'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    )
+    expect(defaultAiProviderPresetConfig('siliconflow').baseUrl).toBe(
+      'https://api.siliconflow.cn/v1',
+    )
+    expect(new Set(AI_PROVIDER_PRESETS.map(({ id }) => id)).size).toBe(AI_PROVIDER_PRESETS.length)
+    for (const preset of AI_PROVIDER_PRESETS) {
+      expect(
+        validateAiProviderConfig({
+          ...defaultAiProviderPresetConfig(preset.id),
+          model: 'model-id',
+        }),
+        preset.label,
+      ).toBe('')
+    }
+  })
+
+  it('recognizes a preset endpoint and falls back to custom after manual editing', () => {
+    const preset = defaultAiProviderPresetConfig('openrouter')
+    expect(resolveAiProviderPresetId(preset)).toBe('openrouter')
+    expect(
+      resolveAiProviderPresetId({ ...preset, baseUrl: 'https://gateway.example.com/v1' }),
+    ).toBe('custom')
+  })
+
   it('uses safe provider-specific defaults without embedding credentials', () => {
     expect(defaultAiProviderConfig('ollama')).toEqual({
       version: 1,

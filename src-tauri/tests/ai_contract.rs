@@ -1,7 +1,8 @@
 use promptmate_lib::ai::{
     cancel_ai_request, complete_prompt_fields, credential_account, delete_ai_api_key,
-    has_ai_api_key, parse_completion_content, parse_model_count, save_ai_api_key, test_ai_provider,
-    validate_config, AiCompletionInput, AiProviderConfig,
+    has_ai_api_key, optimize_composed_prompt, parse_completion_content, parse_model_count,
+    parse_optimized_prompt, save_ai_api_key, test_ai_provider, validate_config, AiCompletionInput,
+    AiProviderConfig,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -95,6 +96,51 @@ fn accepts_only_bounded_exact_completion_json() {
     let unknown = r#"{"description_zh":"a","description_en":"b","tags":[],"aliases_zh":[],"aliases_en":[],"extra":true}"#;
     assert!(parse_completion_content(unknown).is_err());
     assert!(parse_completion_content(&"x".repeat(65_537)).is_err());
+}
+
+#[test]
+fn accepts_only_a_bounded_non_empty_optimized_prompt() {
+    assert_eq!(
+        parse_optimized_prompt("  雨夜霓虹街道  "),
+        Ok("雨夜霓虹街道".into())
+    );
+    assert!(parse_optimized_prompt("   \n ").is_err());
+    assert!(parse_optimized_prompt(&"x".repeat(65_537)).is_err());
+    assert!(parse_optimized_prompt("safe\0unsafe").is_err());
+}
+
+#[test]
+fn optimizes_a_composed_prompt_through_the_bounded_contract() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let body = serde_json::json!({
+        "choices": [{ "message": { "content": "电影感雨夜街道，中近景，霓虹反射。" } }]
+    })
+    .to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+        String::from_utf8(request).unwrap()
+    });
+
+    let result = tauri::async_runtime::block_on(optimize_composed_prompt(
+        config(&format!("http://{address}/v1")),
+        "雨夜街道，中近景。".into(),
+        "zh".into(),
+        "balanced".into(),
+        "basket-contract".into(),
+    ));
+    let request = server.join().unwrap();
+
+    assert_eq!(result, Ok("电影感雨夜街道，中近景，霓虹反射。".into()));
+    assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
+    assert!(request.contains("雨夜街道"));
 }
 
 #[cfg(target_os = "windows")]
@@ -263,6 +309,48 @@ fn rejects_provider_responses_that_reflect_the_bound_credential() {
     assert_eq!(
         result.err().as_deref(),
         Some("AI 服务返回了不安全的补全内容。")
+    );
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn rejects_optimized_prompts_that_reflect_the_bound_credential() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let credential = format!("optimization-reflection-test-{}", std::process::id());
+    let body = serde_json::json!({
+        "choices": [{ "message": { "content": format!("optimized {credential}") } }]
+    })
+    .to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let endpoint = config(&format!("http://{address}/v1"));
+    let _ = delete_ai_api_key(endpoint.clone());
+    let saved = save_ai_api_key(endpoint.clone(), credential);
+
+    let result = tauri::async_runtime::block_on(optimize_composed_prompt(
+        endpoint.clone(),
+        "雨夜街道".into(),
+        "zh".into(),
+        "balanced".into(),
+        "optimization-reflection".into(),
+    ));
+    let cleanup = delete_ai_api_key(endpoint);
+    server.join().unwrap();
+
+    assert_eq!(saved, Ok(()));
+    assert_eq!(cleanup, Ok(()));
+    assert_eq!(
+        result.err().as_deref(),
+        Some("AI 服务返回了不安全的优化内容。")
     );
 }
 

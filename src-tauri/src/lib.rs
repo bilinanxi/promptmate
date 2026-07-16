@@ -11,6 +11,7 @@ pub fn run() {
             ai::has_ai_api_key,
             ai::test_ai_provider,
             ai::complete_prompt_fields,
+            ai::optimize_composed_prompt,
             ai::cancel_ai_request
         ])
         .setup(|app| {
