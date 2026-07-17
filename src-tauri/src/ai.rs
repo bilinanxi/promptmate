@@ -66,6 +66,13 @@ pub struct AiFieldSuggestion {
     pub aliases_en: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AiOptimizedPrompt {
+    pub zh: String,
+    pub en: String,
+}
+
 fn is_kind(value: &str) -> bool {
     matches!(value, "openai-compatible" | "ollama" | "lm-studio")
 }
@@ -351,51 +358,67 @@ async fn perform_completion(
     Ok(suggestion)
 }
 
-pub fn parse_optimized_prompt(content: &str) -> Result<String, String> {
+pub fn parse_optimized_prompt(content: &str) -> Result<AiOptimizedPrompt, String> {
     if content.len() > MAX_COMPLETION_BYTES {
         return Err("AI 优化结果过大。".into());
     }
-    let value = content.trim();
-    if value.is_empty()
-        || value
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-    {
+    let mut value: AiOptimizedPrompt =
+        serde_json::from_str(content.trim()).map_err(|_| "AI 返回了无效的优化结果。")?;
+    value.zh = value.zh.trim().to_owned();
+    value.en = value.en.trim().to_owned();
+    let invalid = |prompt: &str| {
+        prompt.is_empty()
+            || prompt.len() > 32_768
+            || prompt
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    };
+    if invalid(&value.zh) || invalid(&value.en) {
         return Err("AI 返回了无效的优化结果。".into());
     }
-    Ok(value.to_owned())
+    Ok(value)
+}
+
+fn optimization_request(
+    config: &AiProviderConfig,
+    base: &Url,
+    prompt_zh: &str,
+    prompt_en: &str,
+    mode: &str,
+) -> Result<Value, String> {
+    let system_content = "You optimize image or video generation prompts. Preserve intent and factual constraints, improve clarity, visual specificity, composition, lighting, style, and coherence without inventing conflicting subjects. Optimize the Chinese and English prompts as one semantically aligned pair. Return only one strict JSON object with exactly two string fields named zh and en, without explanations or Markdown fences.";
+    let input = json!({ "zh": prompt_zh, "en": prompt_en }).to_string();
+    let mut request = json!({
+        "model": config.model,
+        "temperature": temperature(mode)?,
+        "max_tokens": 512,
+        "messages": [
+            { "role": "system", "content": system_content },
+            { "role": "user", "content": input }
+        ]
+    });
+    if base.host_str() == Some("api.deepseek.com") {
+        request["thinking"] = json!({ "type": "disabled" });
+    }
+    Ok(request)
 }
 
 async fn perform_prompt_optimization(
     config: AiProviderConfig,
-    prompt: String,
-    language: String,
+    prompt_zh: String,
+    prompt_en: String,
     mode: String,
-) -> Result<String, String> {
-    if prompt.trim().is_empty()
-        || prompt.len() > 32_768
-        || !matches!(language.as_str(), "zh" | "en")
+) -> Result<AiOptimizedPrompt, String> {
+    if prompt_zh.trim().is_empty()
+        || prompt_zh.len() > 32_768
+        || prompt_en.trim().is_empty()
+        || prompt_en.len() > 32_768
     {
         return Err("待优化提示词无效或过大。".into());
     }
     let base = validate_config(&config)?;
     let key = api_key(&config, &base)?;
-    let language_instruction = if language == "zh" {
-        "Write the optimized prompt in Chinese."
-    } else {
-        "Write the optimized prompt in English."
-    };
-    let system_content = format!(
-        "You optimize an image or video generation prompt. Preserve its intent and factual constraints, improve clarity, visual specificity, composition, lighting, style, and coherence without inventing conflicting subjects. {language_instruction} Return only the optimized prompt as plain text, without explanations, labels, quotes, or Markdown fences."
-    );
-    let request = json!({
-        "model": config.model,
-        "temperature": temperature(&mode)?,
-        "messages": [
-            { "role": "system", "content": system_content },
-            { "role": "user", "content": prompt }
-        ]
-    });
+    let request = optimization_request(&config, &base, &prompt_zh, &prompt_en, &mode)?;
     let response = authorized(
         client()?
             .post(endpoint(&base, "chat/completions")?)
@@ -419,7 +442,7 @@ async fn perform_prompt_optimization(
     if key
         .as_deref()
         .filter(|secret| !secret.is_empty())
-        .is_some_and(|secret| optimized.contains(secret))
+        .is_some_and(|secret| optimized.zh.contains(secret) || optimized.en.contains(secret))
     {
         return Err("AI 服务返回了不安全的优化内容。".into());
     }
@@ -545,15 +568,15 @@ pub async fn complete_prompt_fields(
 #[tauri::command]
 pub async fn optimize_composed_prompt(
     config: AiProviderConfig,
-    prompt: String,
-    language: String,
+    prompt_zh: String,
+    prompt_en: String,
     mode: String,
     request_id: String,
-) -> Result<String, String> {
+) -> Result<AiOptimizedPrompt, String> {
     let registered = register_request(&request_id)?;
     let _guard = RequestGuard::new(request_id, registered.generation);
     tokio::select! {
-        result = perform_prompt_optimization(config, prompt, language, mode) => result,
+        result = perform_prompt_optimization(config, prompt_zh, prompt_en, mode) => result,
         _ = registered.receiver => Err("AI 请求已取消。".into()),
     }
 }
@@ -561,10 +584,40 @@ pub async fn optimize_composed_prompt(
 #[cfg(test)]
 mod tests {
     use super::{
-        cancel_ai_request, register_request, suggestion_contains_secret, AiFieldSuggestion,
-        RequestGuard,
+        cancel_ai_request, optimization_request, register_request, suggestion_contains_secret,
+        AiFieldSuggestion, AiProviderConfig, RequestGuard,
     };
     use tokio::sync::oneshot::error::TryRecvError;
+    use url::Url;
+
+    #[test]
+    fn disables_deepseek_thinking_for_low_latency_prompt_optimization_only() {
+        let config = AiProviderConfig {
+            version: 1,
+            kind: "openai-compatible".into(),
+            base_url: "https://api.deepseek.com/v1".into(),
+            model: "deepseek-v4-pro".into(),
+        };
+        let deepseek = optimization_request(
+            &config,
+            &Url::parse(&config.base_url).unwrap(),
+            "雨夜街道",
+            "Rainy street",
+            "balanced",
+        )
+        .unwrap();
+        assert_eq!(deepseek["thinking"]["type"], "disabled");
+
+        let custom = optimization_request(
+            &config,
+            &Url::parse("https://api.example.com/v1").unwrap(),
+            "雨夜街道",
+            "Rainy street",
+            "balanced",
+        )
+        .unwrap();
+        assert!(custom.get("thinking").is_none());
+    }
 
     #[test]
     fn duplicate_request_ids_do_not_replace_the_active_cancellation_channel() {

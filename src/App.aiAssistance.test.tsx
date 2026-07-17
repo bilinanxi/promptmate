@@ -42,7 +42,10 @@ beforeEach(() => {
     aliases_zh: ['夜雨肖像'],
     aliases_en: ['rain portrait'],
   })
-  aiMocks.optimize.mockResolvedValue('电影感年轻女性，柔和逆光，细腻肤质。')
+  aiMocks.optimize.mockResolvedValue({
+    zh: '电影感年轻女性，柔和逆光，细腻肤质。',
+    en: 'Cinematic young woman, soft backlight, detailed skin texture.',
+  })
 })
 
 describe('AI provider settings', () => {
@@ -355,7 +358,7 @@ describe('inspiration basket AI optimization', () => {
     )
   }
 
-  it('optimizes the editable composed prompt and can restore the previous text', async () => {
+  it('optimizes both languages in one request and restores both original prompts', async () => {
     configureProvider()
     const user = userEvent.setup()
     render(<App />)
@@ -367,21 +370,55 @@ describe('inspiration basket AI optimization', () => {
 
     expect(aiMocks.optimize).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'example-model' }),
-      '年轻女性。',
-      'zh',
+      { zh: '年轻女性。', en: 'young woman.' },
       'balanced',
       expect.stringMatching(/^basket-/),
     )
     expect(editor).toHaveValue('电影感年轻女性，柔和逆光，细腻肤质。')
-    expect(screen.getByRole('status')).toHaveTextContent('AI 优化已应用')
+    expect(screen.getByRole('status')).toHaveTextContent('AI 已同步优化中文和英文')
+
+    await user.click(screen.getByRole('button', { name: 'EN' }))
+    expect(editor).toHaveValue('Cinematic young woman, soft backlight, detailed skin texture.')
+
+    aiMocks.optimize.mockResolvedValueOnce({
+      zh: '第二次优化的中文提示词。',
+      en: 'Second optimized English prompt.',
+    })
+    await user.click(screen.getByRole('button', { name: 'AI 优化' }))
+    expect(editor).toHaveValue('Second optimized English prompt.')
 
     await user.click(screen.getByRole('button', { name: '恢复优化前内容' }))
-    expect(editor).toHaveValue('年轻女性。')
+    expect(editor).toHaveValue('Cinematic young woman, soft backlight, detailed skin texture.')
+    await user.click(screen.getByRole('button', { name: '中文' }))
+    expect(editor).toHaveValue('电影感年轻女性，柔和逆光，细腻肤质。')
   })
 
-  it('supports native cancellation and never overwrites edits made while pending', async () => {
+  it('shows an accessible indeterminate progress bar while optimization is pending', async () => {
     configureProvider()
-    const pending = deferred<string>()
+    const pending = deferred<{ zh: string; en: string }>()
+    aiMocks.optimize.mockReturnValueOnce(pending.promise)
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    await user.click(screen.getByRole('button', { name: 'AI 优化' }))
+
+    expect(screen.getByRole('progressbar', { name: 'AI 优化进度' })).toHaveAttribute(
+      'aria-valuetext',
+      '正在等待 AI 服务响应',
+    )
+    expect(screen.getByText('正在同步优化中文和英文…')).toBeInTheDocument()
+
+    await act(async () => {
+      pending.resolve({ zh: '优化后的中文', en: 'Optimized English' })
+      await pending.promise
+    })
+    expect(screen.queryByRole('progressbar', { name: 'AI 优化进度' })).not.toBeInTheDocument()
+  })
+
+  it('keeps cancellation available after the pending output is cleared', async () => {
+    configureProvider()
+    const pending = deferred<{ zh: string; en: string }>()
     aiMocks.optimize.mockReturnValueOnce(pending.promise)
     const user = userEvent.setup()
     render(<App />)
@@ -389,14 +426,41 @@ describe('inspiration basket AI optimization', () => {
     await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
     const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
     await user.click(screen.getByRole('button', { name: 'AI 优化' }))
-    const requestId = aiMocks.optimize.mock.calls[0][4]
+    const requestId = aiMocks.optimize.mock.calls[0][3]
+    await user.clear(editor)
+
+    const cancel = screen.getByRole('button', { name: '取消 AI 优化' })
+    expect(cancel).toBeEnabled()
+    await user.click(cancel)
+    expect(aiMocks.cancel).toHaveBeenCalledWith(requestId)
+    expect(screen.queryByRole('progressbar', { name: 'AI 优化进度' })).not.toBeInTheDocument()
+
+    await act(async () => {
+      pending.resolve({ zh: '不应覆盖空内容', en: 'Must not overwrite empty content' })
+      await pending.promise
+    })
+    expect(editor).toHaveValue('')
+  })
+
+  it('supports native cancellation and never overwrites edits made while pending', async () => {
+    configureProvider()
+    const pending = deferred<{ zh: string; en: string }>()
+    aiMocks.optimize.mockReturnValueOnce(pending.promise)
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^年轻女性，/ }))
+    const editor = screen.getByRole('textbox', { name: '编辑拼装结果' })
+    await user.click(screen.getByRole('button', { name: 'AI 优化' }))
+    const requestId = aiMocks.optimize.mock.calls[0][3]
     await user.clear(editor)
     await user.type(editor, '用户在等待时修改的内容')
     await user.click(screen.getByRole('button', { name: '取消 AI 优化' }))
 
     expect(aiMocks.cancel).toHaveBeenCalledWith(requestId)
+    expect(screen.queryByRole('progressbar', { name: 'AI 优化进度' })).not.toBeInTheDocument()
     await act(async () => {
-      pending.resolve('不应覆盖用户内容')
+      pending.resolve({ zh: '不应覆盖用户内容', en: 'Must not overwrite user content' })
       await pending.promise
     })
     expect(editor).toHaveValue('用户在等待时修改的内容')
@@ -414,5 +478,6 @@ describe('inspiration basket AI optimization', () => {
 
     expect(editor).toHaveValue('年轻女性。')
     expect(await screen.findByRole('alert')).toHaveTextContent('provider unavailable')
+    expect(screen.queryByRole('progressbar', { name: 'AI 优化进度' })).not.toBeInTheDocument()
   })
 })

@@ -61,16 +61,22 @@ describe('AI native client', () => {
   })
 
   it('passes only the composed prompt and non-secret settings to basket optimization', async () => {
-    const invoke = vi.fn().mockResolvedValue('优化后的提示词')
+    const optimized = { zh: '优化后的提示词', en: 'Optimized prompt' }
+    const invoke = vi.fn().mockResolvedValue(optimized)
     const client = createAiNativeClient({ isTauri: () => true, invoke })
 
     await expect(
-      client.optimize(config, '雨夜街道，中近景。', 'zh', 'balanced', 'basket-1'),
-    ).resolves.toBe('优化后的提示词')
+      client.optimize(
+        config,
+        { zh: '雨夜街道，中近景。', en: 'Rainy street, medium close-up.' },
+        'balanced',
+        'basket-1',
+      ),
+    ).resolves.toEqual(optimized)
     expect(invoke).toHaveBeenCalledWith('optimize_composed_prompt', {
       config,
-      prompt: '雨夜街道，中近景。',
-      language: 'zh',
+      promptZh: '雨夜街道，中近景。',
+      promptEn: 'Rainy street, medium close-up.',
       mode: 'balanced',
       requestId: 'basket-1',
     })

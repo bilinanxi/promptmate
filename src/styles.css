@@ -720,6 +720,28 @@ textarea.output-text {
   resize: vertical;
 }
 
+.basket-ai-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #1d4ed8;
+  background: #eef4ff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.basket-ai-progress p {
+  margin: 0;
+}
+
+.basket-ai-progress progress {
+  width: 100%;
+  height: 6px;
+  accent-color: #2563eb;
+}
+
 .output-actions {
   display: grid;
   grid-template-columns: 1fr 1.15fr;

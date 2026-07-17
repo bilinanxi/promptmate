@@ -23,6 +23,11 @@ export interface AiFieldSuggestion {
   aliases_en: string[]
 }
 
+export interface AiOptimizedPrompt {
+  zh: string
+  en: string
+}
+
 function isStringList(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -68,11 +73,10 @@ export interface AiNativeClient {
   ): Promise<AiFieldSuggestion>
   optimize(
     config: AiProviderConfig,
-    prompt: string,
-    language: 'zh' | 'en',
+    prompt: AiOptimizedPrompt,
     mode: AiCreativityMode,
     requestId: string,
-  ): Promise<string>
+  ): Promise<AiOptimizedPrompt>
   cancel(requestId: string): Promise<void>
 }
 
@@ -101,11 +105,11 @@ export function createAiNativeClient(
     testConnection: (config) => desktopOnly<string>('test_ai_provider', { config }),
     complete: (config, input, mode, requestId) =>
       desktopOnly<AiFieldSuggestion>('complete_prompt_fields', { config, input, mode, requestId }),
-    optimize: (config, prompt, language, mode, requestId) =>
-      desktopOnly<string>('optimize_composed_prompt', {
+    optimize: (config, prompt, mode, requestId) =>
+      desktopOnly<AiOptimizedPrompt>('optimize_composed_prompt', {
         config,
-        prompt,
-        language,
+        promptZh: prompt.zh,
+        promptEn: prompt.en,
         mode,
         requestId,
       }),

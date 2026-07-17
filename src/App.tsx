@@ -15,6 +15,7 @@ import {
   isAiFieldSuggestion,
   type AiCreativityMode,
   type AiFieldSuggestion,
+  type AiOptimizedPrompt,
 } from './features/ai/aiNativeClient'
 import { AiCompletionPanel } from './features/ai/AiCompletionPanel'
 import { AiSettingsDialog } from './features/ai/AiSettingsDialog'
@@ -439,7 +440,8 @@ export function App() {
   const [basketAiOptimizing, setBasketAiOptimizing] = useState(false)
   const [basketAiError, setBasketAiError] = useState('')
   const [basketAiStatus, setBasketAiStatus] = useState('')
-  const [basketAiOriginal, setBasketAiOriginal] = useState<string | null>(null)
+  const [basketAiOptimized, setBasketAiOptimized] = useState<AiOptimizedPrompt | null>(null)
+  const [basketAiOriginal, setBasketAiOriginal] = useState<AiOptimizedPrompt | null>(null)
   const [query, setQuery] = useState('')
   const [categoryId, setCategoryId] = useState<string>()
   const [tag, setTag] = useState<string>()
@@ -457,7 +459,7 @@ export function App() {
   const basketAiAttempt = useRef(0)
   const basketAiPending = useRef(false)
   const basketAiRequestId = useRef<string | null>(null)
-  const latestBasketOutput = useRef('')
+  const latestBasketOutputs = useRef<AiOptimizedPrompt>({ zh: '', en: '' })
   const latestCreateDraft = useRef(createDraft)
   const createDialog = useRef<HTMLElement>(null)
   const createInitialFocus = useRef<HTMLInputElement>(null)
@@ -474,6 +476,7 @@ export function App() {
   const copyAttempt = useRef(0)
   const recentSequence = useRef(0)
   const preserveEditedOutput = useRef(false)
+  const preserveBasketAiOnLanguageChange = useRef(false)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(
@@ -540,12 +543,16 @@ export function App() {
   const selected = selectedIds
     .map((id) => promptConcepts.find((concept) => concept.id === id))
     .filter((concept): concept is PromptConcept => concept !== undefined)
-  const separator = language === 'zh' ? '，' : ', '
-  const ending = language === 'zh' ? '。' : '.'
-  const output = selected.length
-    ? `${selected.map((concept) => concept[language]).join(separator)}${ending}`
-    : ''
-  latestBasketOutput.current = editedOutput ?? output
+  const baseOutputs: AiOptimizedPrompt = {
+    zh: selected.length ? `${selected.map((concept) => concept.zh).join('，')}。` : '',
+    en: selected.length ? `${selected.map((concept) => concept.en).join(', ')}.` : '',
+  }
+  const output = basketAiOptimized?.[language] ?? baseOutputs[language]
+  latestBasketOutputs.current = {
+    zh: basketAiOptimized?.zh ?? baseOutputs.zh,
+    en: basketAiOptimized?.en ?? baseOutputs.en,
+    [language]: editedOutput ?? output,
+  }
   const deleteTarget = userPrompts.find(
     (prompt) =>
       prompt.id === deletePromptId &&
@@ -615,15 +622,20 @@ export function App() {
   )
 
   useEffect(() => {
-    const requestId = basketAiRequestId.current
-    basketAiRequestId.current = null
-    if (requestId) void aiNativeClient.cancel(requestId).catch(() => undefined)
-    basketAiAttempt.current += 1
-    basketAiPending.current = false
-    setBasketAiOptimizing(false)
-    setBasketAiError('')
-    setBasketAiStatus('')
-    setBasketAiOriginal(null)
+    const preserveAi = preserveBasketAiOnLanguageChange.current
+    preserveBasketAiOnLanguageChange.current = false
+    if (!preserveAi) {
+      const requestId = basketAiRequestId.current
+      basketAiRequestId.current = null
+      if (requestId) void aiNativeClient.cancel(requestId).catch(() => undefined)
+      basketAiAttempt.current += 1
+      basketAiPending.current = false
+      setBasketAiOptimizing(false)
+      setBasketAiError('')
+      setBasketAiStatus('')
+      setBasketAiOptimized(null)
+      setBasketAiOriginal(null)
+    }
     if (preserveEditedOutput.current) {
       preserveEditedOutput.current = false
     } else {
@@ -636,6 +648,12 @@ export function App() {
     }
     setCopyFeedback('idle')
   }, [selectedIds, language])
+
+  function switchOutputLanguage(next: 'zh' | 'en') {
+    if (next === language) return
+    preserveBasketAiOnLanguageChange.current = true
+    setLanguage(next)
+  }
 
   async function copyOutput() {
     const attempt = ++copyAttempt.current
@@ -694,8 +712,8 @@ export function App() {
       cancelBasketOptimization()
       return
     }
-    const prompt = latestBasketOutput.current
-    if (!prompt.trim()) return
+    const prompts = { ...latestBasketOutputs.current }
+    if (!prompts.zh.trim() || !prompts.en.trim()) return
     if (validateAiProviderConfig(aiConfig)) {
       setBasketAiError('请先在 AI 设置中配置有效的服务地址和模型。')
       setBasketAiStatus('')
@@ -711,26 +729,37 @@ export function App() {
     setBasketAiStatus('')
     setBasketAiOriginal(null)
     try {
-      const optimized = await aiNativeClient.optimize(aiConfig, prompt, language, aiMode, requestId)
+      const optimized = await aiNativeClient.optimize(aiConfig, prompts, aiMode, requestId)
       if (attempt !== basketAiAttempt.current) return
       if (
-        typeof optimized !== 'string' ||
-        !optimized.trim() ||
-        optimized.length > 65_536 ||
-        Array.from(optimized).some((character) => {
-          const codePoint = character.codePointAt(0) ?? 0
-          return codePoint === 127 || (codePoint < 32 && ![9, 10, 13].includes(codePoint))
+        !optimized ||
+        typeof optimized !== 'object' ||
+        !(['zh', 'en'] as const).every((key) => {
+          const value = optimized[key]
+          return (
+            typeof value === 'string' &&
+            value.trim() &&
+            value.length <= 32_768 &&
+            !Array.from(value).some((character) => {
+              const codePoint = character.codePointAt(0) ?? 0
+              return codePoint === 127 || (codePoint < 32 && ![9, 10, 13].includes(codePoint))
+            })
+          )
         })
       ) {
         throw new Error('AI 返回了无效的优化结果。')
       }
-      if (latestBasketOutput.current !== prompt) {
+      if (
+        latestBasketOutputs.current.zh !== prompts.zh ||
+        latestBasketOutputs.current.en !== prompts.en
+      ) {
         setBasketAiStatus('拼装内容已修改，AI 结果未覆盖。')
         return
       }
-      setBasketAiOriginal(prompt)
-      editOutput(optimized.trim())
-      setBasketAiStatus('AI 优化已应用，可继续编辑或复制。')
+      setBasketAiOriginal(prompts)
+      setBasketAiOptimized({ zh: optimized.zh.trim(), en: optimized.en.trim() })
+      setEditedOutput(null)
+      setBasketAiStatus('AI 已同步优化中文和英文，可切换查看。')
     } catch (error) {
       if (attempt === basketAiAttempt.current) {
         setBasketAiError(safeAiError(error, aiApiKey))
@@ -757,7 +786,8 @@ export function App() {
 
   function restoreBasketOutput() {
     if (basketAiOriginal === null) return
-    editOutput(basketAiOriginal)
+    setBasketAiOptimized(basketAiOriginal)
+    setEditedOutput(null)
     setBasketAiOriginal(null)
     setBasketAiError('')
     setBasketAiStatus('已恢复优化前内容。')
@@ -2036,14 +2066,14 @@ export function App() {
                   <button
                     type="button"
                     className={language === 'zh' ? 'active' : ''}
-                    onClick={() => setLanguage('zh')}
+                    onClick={() => switchOutputLanguage('zh')}
                   >
                     中文
                   </button>
                   <button
                     type="button"
                     className={language === 'en' ? 'active' : ''}
-                    onClick={() => setLanguage('en')}
+                    onClick={() => switchOutputLanguage('en')}
                   >
                     EN
                   </button>
@@ -2061,11 +2091,19 @@ export function App() {
                   从词库选择词条，这里会自动组合。
                 </output>
               )}
+              {basketAiOptimizing ? (
+                <div className="basket-ai-progress">
+                  <p>正在同步优化中文和英文…</p>
+                  <progress aria-label="AI 优化进度" aria-valuetext="正在等待 AI 服务响应" />
+                </div>
+              ) : null}
               <div className="output-actions">
                 <button
                   type="button"
                   className="ai-optimize-button"
-                  disabled={!selected.length || !(editedOutput ?? output).trim()}
+                  disabled={
+                    !selected.length || (!basketAiOptimizing && !(editedOutput ?? output).trim())
+                  }
                   onClick={optimizeBasketOutput}
                 >
                   <span aria-hidden="true">✦</span>

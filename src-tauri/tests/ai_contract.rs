@@ -2,7 +2,7 @@ use promptmate_lib::ai::{
     cancel_ai_request, complete_prompt_fields, credential_account, delete_ai_api_key,
     has_ai_api_key, optimize_composed_prompt, parse_completion_content, parse_model_count,
     parse_optimized_prompt, save_ai_api_key, test_ai_provider, validate_config, AiCompletionInput,
-    AiProviderConfig,
+    AiOptimizedPrompt, AiProviderConfig,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -99,14 +99,19 @@ fn accepts_only_bounded_exact_completion_json() {
 }
 
 #[test]
-fn accepts_only_a_bounded_non_empty_optimized_prompt() {
+fn accepts_only_bounded_exact_bilingual_optimized_prompt_json() {
     assert_eq!(
-        parse_optimized_prompt("  雨夜霓虹街道  "),
-        Ok("雨夜霓虹街道".into())
+        parse_optimized_prompt(r#"{"zh":" 雨夜霓虹街道 ","en":" Neon-lit rainy street "}"#),
+        Ok(AiOptimizedPrompt {
+            zh: "雨夜霓虹街道".into(),
+            en: "Neon-lit rainy street".into(),
+        })
     );
-    assert!(parse_optimized_prompt("   \n ").is_err());
+    assert!(parse_optimized_prompt(r#"{"zh":"雨夜"}"#).is_err());
+    assert!(parse_optimized_prompt(r#"{"zh":"雨夜","en":"Rain","extra":true}"#).is_err());
+    assert!(parse_optimized_prompt(r#"{"zh":"","en":"Rain"}"#).is_err());
     assert!(parse_optimized_prompt(&"x".repeat(65_537)).is_err());
-    assert!(parse_optimized_prompt("safe\0unsafe").is_err());
+    assert!(parse_optimized_prompt(r#"{"zh":"safe\u0000unsafe","en":"Rain"}"#).is_err());
 }
 
 #[test]
@@ -114,7 +119,7 @@ fn optimizes_a_composed_prompt_through_the_bounded_contract() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let body = serde_json::json!({
-        "choices": [{ "message": { "content": "电影感雨夜街道，中近景，霓虹反射。" } }]
+        "choices": [{ "message": { "content": "{\"zh\":\"电影感雨夜街道，中近景，霓虹反射。\",\"en\":\"Cinematic rainy street, medium close-up, neon reflections.\"}" } }]
     })
     .to_string();
     let response = format!(
@@ -132,15 +137,23 @@ fn optimizes_a_composed_prompt_through_the_bounded_contract() {
     let result = tauri::async_runtime::block_on(optimize_composed_prompt(
         config(&format!("http://{address}/v1")),
         "雨夜街道，中近景。".into(),
-        "zh".into(),
+        "Rainy street, medium close-up.".into(),
         "balanced".into(),
         "basket-contract".into(),
     ));
     let request = server.join().unwrap();
 
-    assert_eq!(result, Ok("电影感雨夜街道，中近景，霓虹反射。".into()));
+    assert_eq!(
+        result,
+        Ok(AiOptimizedPrompt {
+            zh: "电影感雨夜街道，中近景，霓虹反射。".into(),
+            en: "Cinematic rainy street, medium close-up, neon reflections.".into(),
+        })
+    );
     assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
     assert!(request.contains("雨夜街道"));
+    assert!(request.contains("Rainy street"));
+    assert!(request.contains("\"max_tokens\":512"));
 }
 
 #[cfg(target_os = "windows")]
@@ -319,7 +332,10 @@ fn rejects_optimized_prompts_that_reflect_the_bound_credential() {
     let address = listener.local_addr().unwrap();
     let credential = format!("optimization-reflection-test-{}", std::process::id());
     let body = serde_json::json!({
-        "choices": [{ "message": { "content": format!("optimized {credential}") } }]
+        "choices": [{ "message": { "content": serde_json::json!({
+            "zh": format!("优化 {credential}"),
+            "en": "optimized prompt"
+        }).to_string() } }]
     })
     .to_string();
     let response = format!(
@@ -339,7 +355,7 @@ fn rejects_optimized_prompts_that_reflect_the_bound_credential() {
     let result = tauri::async_runtime::block_on(optimize_composed_prompt(
         endpoint.clone(),
         "雨夜街道".into(),
-        "zh".into(),
+        "Rainy street".into(),
         "balanced".into(),
         "optimization-reflection".into(),
     ));
