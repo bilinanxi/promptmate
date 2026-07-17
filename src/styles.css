@@ -242,8 +242,14 @@ button:disabled {
 
 .catalog-heading {
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.catalog-heading > div:first-child {
+  flex: 1 1 190px;
+  min-width: 180px;
 }
 
 .catalog-heading h1 {
@@ -262,6 +268,175 @@ button:disabled {
   padding-top: 7px;
   color: #687386;
   font-size: 12px;
+}
+
+.image-prompt-workspace {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #cdddfb;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top right, rgb(219 234 254 / 72%), transparent 38%),
+    linear-gradient(145deg, #fbfdff, #f4f7ff);
+  box-shadow: 0 14px 34px rgb(28 55 98 / 8%);
+}
+
+.image-prompt-heading,
+.image-prompt-heading > div,
+.image-prompt-body,
+.image-picker,
+.image-prompt-result {
+  min-width: 0;
+}
+
+.image-prompt-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.image-prompt-heading h2,
+.image-prompt-heading p,
+.image-picker figure {
+  margin: 0;
+}
+
+.image-prompt-heading h2 {
+  font-size: 19px;
+}
+
+.image-prompt-heading .eyebrow {
+  margin-bottom: 4px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.image-prompt-heading h2 + p {
+  margin-top: 4px;
+  color: #617087;
+  font-size: 13px;
+}
+
+.secondary-button,
+.image-upload-button {
+  border: 1px solid #b9c9e8;
+  border-radius: 9px;
+  color: #24446f;
+  background: rgb(255 255 255 / 82%);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.image-upload-button:focus-within {
+  outline: 3px solid rgb(37 99 235 / 28%);
+  outline-offset: 2px;
+}
+
+.secondary-button {
+  padding: 8px 12px;
+}
+
+.image-privacy-note {
+  margin: 13px 0;
+  padding: 9px 11px;
+  border-left: 3px solid #60a5fa;
+  color: #526075;
+  background: rgb(255 255 255 / 65%);
+  font-size: 12px;
+}
+
+.image-prompt-body {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.75fr) minmax(260px, 1.25fr);
+  gap: 14px;
+}
+
+.image-picker,
+.image-prompt-result {
+  padding: 13px;
+  border: 1px solid #dce5f3;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 78%);
+}
+
+.image-picker {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.image-upload-button {
+  display: inline-flex;
+  justify-content: center;
+  padding: 9px 12px;
+}
+
+.image-upload-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.image-picker small,
+.image-picker figcaption {
+  color: #738096;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.image-placeholder,
+.image-picker figure {
+  min-height: 132px;
+  border-radius: 10px;
+  background: #eef3fa;
+}
+
+.image-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: #7a879a;
+  font-size: 12px;
+  text-align: center;
+}
+
+.image-picker figure {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+}
+
+.image-picker img {
+  width: 100%;
+  height: 132px;
+  border-radius: 7px;
+  object-fit: contain;
+  background: #e9eef6;
+}
+
+.image-prompt-result textarea {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  padding: 11px;
+  border: 1px solid #d4dce8;
+  border-radius: 10px;
+  color: #263245;
+  background: #fff;
+  line-height: 1.65;
+}
+
+.image-prompt-result textarea:disabled {
+  color: #778397;
+  background: #f5f7fa;
 }
 
 .filter-row {
@@ -850,7 +1025,8 @@ textarea.output-text {
 }
 
 .import-export-button,
-.ai-settings-button {
+.ai-settings-button,
+.image-prompt-button {
   min-height: 36px;
   padding: 0 14px;
   border: 1px solid #cbd5e1;
@@ -859,6 +1035,12 @@ textarea.output-text {
   background: #fff;
   font-weight: 650;
   cursor: pointer;
+}
+
+.image-prompt-button[aria-pressed='true'] {
+  border-color: #93b4f5;
+  color: #1d4ed8;
+  background: #eef4ff;
 }
 
 .create-feedback {
@@ -1453,6 +1635,14 @@ textarea.output-text {
 
   .create-prompt-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .image-prompt-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .image-prompt-heading {
+    flex-wrap: wrap;
   }
 
   .create-prompt-form > [role='alert'],

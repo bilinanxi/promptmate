@@ -13,6 +13,7 @@ pub fn run() {
             ai::test_ai_provider,
             ai::complete_prompt_fields,
             ai::optimize_composed_prompt,
+            ai::generate_prompt_from_image,
             ai::cancel_ai_request
         ])
         .setup(|app| {

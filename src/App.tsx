@@ -18,6 +18,7 @@ import {
   type AiOptimizedPrompt,
 } from './features/ai/aiNativeClient'
 import { AiCompletionPanel } from './features/ai/AiCompletionPanel'
+import { ImagePromptWorkspace } from './features/ai/ImagePromptWorkspace'
 import { AiSettingsDialog } from './features/ai/AiSettingsDialog'
 import {
   applyAiSuggestionWithoutStaleOverwrite,
@@ -376,6 +377,7 @@ function PromptCard({
 export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
+  const [imagePromptOpen, setImagePromptOpen] = useState(false)
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(loadAiConfig)
   const [aiSettingsDraft, setAiSettingsDraft] = useState<AiProviderConfig>(aiConfig)
   const [aiApiKey, setAiApiKey] = useState('')
@@ -1629,6 +1631,7 @@ export function App() {
     closeImportDialog()
     setDeletePromptId(null)
     setMediaType(nextMediaType)
+    setImagePromptOpen(false)
     setLibraryView('all')
     setBasket({ selectedIds: [], undoSelection: null })
     setRecommendationOffset(0)
@@ -1850,6 +1853,16 @@ export function App() {
                             ? `找到 ${visiblePrompts.length} 个词条`
                             : `正在展示 ${promptConcepts.length} 个精选词条`}
                 </span>
+                {mediaType === 'image' ? (
+                  <button
+                    type="button"
+                    className="image-prompt-button"
+                    aria-pressed={imagePromptOpen}
+                    onClick={() => setImagePromptOpen((open) => !open)}
+                  >
+                    图片转提示词
+                  </button>
+                ) : null}
                 <button type="button" className="ai-settings-button" onClick={openAiSettings}>
                   AI 设置
                 </button>
@@ -1866,6 +1879,13 @@ export function App() {
                 </button>
               </div>
             </div>
+            {mediaType === 'image' && imagePromptOpen ? (
+              <ImagePromptWorkspace
+                config={aiConfig}
+                mode={aiMode}
+                onOpenSettings={openAiSettings}
+              />
+            ) : null}
             {importFeedback !== null ? (
               <p className="create-feedback create-durable" role="status" aria-live="polite">
                 已成功导入 {importFeedback} 条社区词条。

@@ -94,6 +94,27 @@ describe('AI native client', () => {
     expect(JSON.stringify(invoke.mock.calls[0])).not.toContain(testCredential)
   })
 
+  it('passes bounded image input through the native multimodal command', async () => {
+    const prompt = { zh: '红色陶瓷杯，柔和侧光。', en: 'Red ceramic mug, soft side light.' }
+    const invoke = vi.fn().mockResolvedValue(prompt)
+    const client = createAiNativeClient({ isTauri: () => true, invoke })
+
+    await expect(
+      client.generateFromImage(
+        config,
+        { mimeType: 'image/png', base64: 'iVBORw0KGgo=' },
+        'balanced',
+        'image-1',
+      ),
+    ).resolves.toEqual(prompt)
+    expect(invoke).toHaveBeenCalledWith('generate_prompt_from_image', {
+      config,
+      input: { mimeType: 'image/png', base64: 'iVBORw0KGgo=' },
+      mode: 'balanced',
+      requestId: 'image-1',
+    })
+  })
+
   it('fails explicitly instead of attempting network calls in browser preview', async () => {
     const invoke = vi.fn()
     const client = createAiNativeClient({ isTauri: () => false, invoke })

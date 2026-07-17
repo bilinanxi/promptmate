@@ -1,8 +1,9 @@
 use promptmate_lib::ai::{
     cancel_ai_request, complete_prompt_fields, credential_account, delete_ai_api_key,
-    has_ai_api_key, list_ai_models, optimize_composed_prompt, parse_completion_content,
-    parse_model_ids, parse_optimized_prompt, save_ai_api_key, test_ai_provider, validate_config,
-    AiCompletionInput, AiOptimizedPrompt, AiProviderConfig,
+    generate_prompt_from_image, has_ai_api_key, list_ai_models, optimize_composed_prompt,
+    parse_completion_content, parse_image_prompt_content, parse_model_ids, parse_optimized_prompt,
+    save_ai_api_key, test_ai_provider, validate_config, AiCompletionInput, AiOptimizedPrompt,
+    AiProviderConfig, ImagePromptInput,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -187,6 +188,17 @@ fn accepts_only_bounded_exact_bilingual_optimized_prompt_json() {
 }
 
 #[test]
+fn image_prompts_use_a_tighter_bilingual_output_limit() {
+    let valid = serde_json::json!({ "zh": "雨夜", "en": "Rainy night" }).to_string();
+    assert!(parse_image_prompt_content(&valid).is_ok());
+    let oversized = serde_json::json!({ "zh": "图".repeat(4_097), "en": "safe" }).to_string();
+    assert_eq!(
+        parse_image_prompt_content(&oversized),
+        Err("AI 返回了无效的图片提示词。".into())
+    );
+}
+
+#[test]
 fn optimizes_a_composed_prompt_through_the_bounded_contract() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -226,6 +238,145 @@ fn optimizes_a_composed_prompt_through_the_bounded_contract() {
     assert!(request.contains("雨夜街道"));
     assert!(request.contains("Rainy street"));
     assert!(request.contains("\"max_tokens\":512"));
+}
+
+#[test]
+fn generates_bilingual_prompts_from_a_bounded_image_contract() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let body = serde_json::json!({
+        "choices": [{ "message": { "content": "{\"zh\":\"极简白色背景上的红色陶瓷杯，柔和侧光。\",\"en\":\"A red ceramic mug on a minimal white background, soft side lighting.\"}" } }]
+    })
+    .to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    let image_base64 = "/9j/2Q==";
+
+    let result = tauri::async_runtime::block_on(generate_prompt_from_image(
+        config(&format!("http://{address}/v1")),
+        ImagePromptInput {
+            mime_type: "image/jpeg".into(),
+            base64: image_base64.into(),
+        },
+        "balanced".into(),
+        "image-contract".into(),
+    ));
+    let request = server.join().unwrap();
+
+    assert_eq!(
+        result,
+        Ok(AiOptimizedPrompt {
+            zh: "极简白色背景上的红色陶瓷杯，柔和侧光。".into(),
+            en: "A red ceramic mug on a minimal white background, soft side lighting.".into(),
+        })
+    );
+    assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
+    assert!(request.contains(&format!("data:image/jpeg;base64,{image_base64}")));
+    assert!(request.contains("image_url"));
+    assert!(request.contains("\"max_tokens\":512"));
+}
+
+#[test]
+fn rejects_unsupported_spoofed_and_oversized_images_before_network() {
+    let provider = config("https://api.example.com/v1");
+    let invalid = [
+        (
+            ImagePromptInput {
+                mime_type: "image/gif".into(),
+                base64: "R0lGODlhAQABAAAAACw=".into(),
+            },
+            "image-invalid-type",
+            "仅支持已去除元数据的 JPEG 图片。",
+        ),
+        (
+            ImagePromptInput {
+                mime_type: "image/jpeg".into(),
+                base64: "/9j/".into(),
+            },
+            "image-spoofed-type",
+            "图片格式与文件内容不一致。",
+        ),
+        (
+            ImagePromptInput {
+                mime_type: "image/jpeg".into(),
+                base64: "A".repeat(6_990_509),
+            },
+            "image-too-large",
+            "图片为空或超过 5 MiB。",
+        ),
+    ];
+
+    for (input, request_id, expected) in invalid {
+        assert_eq!(
+            tauri::async_runtime::block_on(generate_prompt_from_image(
+                provider.clone(),
+                input,
+                "balanced".into(),
+                request_id.into(),
+            )),
+            Err(expected.into())
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn rejects_image_prompt_responses_that_reflect_the_bound_credential() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let credential = format!("image-reflection-test-{}", std::process::id());
+    let escaped_credential = credential
+        .chars()
+        .map(|character| format!("\\u{:04x}", character as u32))
+        .collect::<String>();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "reasoning_content": credential,
+                "content": "{\"zh\":\"安全图片提示词\",\"en\":\"Safe image prompt\"}"
+            }
+        }]
+    })
+    .to_string()
+    .replace(&credential, &escaped_credential);
+    assert!(!body.contains(&credential));
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let endpoint = config(&format!("http://{address}/v1"));
+    let _ = delete_ai_api_key(endpoint.clone());
+    assert_eq!(save_ai_api_key(endpoint.clone(), credential), Ok(()));
+
+    let result = tauri::async_runtime::block_on(generate_prompt_from_image(
+        endpoint.clone(),
+        ImagePromptInput {
+            mime_type: "image/jpeg".into(),
+            base64: "/9j/2Q==".into(),
+        },
+        "balanced".into(),
+        "image-reflection".into(),
+    ));
+    let cleanup = delete_ai_api_key(endpoint);
+    server.join().unwrap();
+
+    assert_eq!(cleanup, Ok(()));
+    assert_eq!(result, Err("AI 服务返回了不安全的图片提示词。".into()));
 }
 
 #[cfg(target_os = "windows")]

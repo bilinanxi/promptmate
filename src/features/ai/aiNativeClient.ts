@@ -28,6 +28,11 @@ export interface AiOptimizedPrompt {
   en: string
 }
 
+export interface ImagePromptInput {
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  base64: string
+}
+
 function isStringList(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -78,6 +83,12 @@ export interface AiNativeClient {
     mode: AiCreativityMode,
     requestId: string,
   ): Promise<AiOptimizedPrompt>
+  generateFromImage(
+    config: AiProviderConfig,
+    input: ImagePromptInput,
+    mode: AiCreativityMode,
+    requestId: string,
+  ): Promise<AiOptimizedPrompt>
   cancel(requestId: string): Promise<void>
 }
 
@@ -112,6 +123,13 @@ export function createAiNativeClient(
         config,
         promptZh: prompt.zh,
         promptEn: prompt.en,
+        mode,
+        requestId,
+      }),
+    generateFromImage: (config, input, mode, requestId) =>
+      desktopOnly<AiOptimizedPrompt>('generate_prompt_from_image', {
+        config,
+        input,
         mode,
         requestId,
       }),
