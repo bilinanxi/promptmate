@@ -35,6 +35,17 @@ describe('AI native client', () => {
     })
   })
 
+  it('loads provider model identifiers through the native boundary', async () => {
+    const models = ['MiniMax-M3', 'MiniMax-M2.7']
+    const invoke = vi.fn().mockResolvedValue(models)
+    const client = createAiNativeClient({ isTauri: () => true, invoke })
+
+    await expect(client.listModels({ ...config, model: '' })).resolves.toEqual(models)
+    expect(invoke).toHaveBeenCalledWith('list_ai_models', {
+      config: { ...config, model: '' },
+    })
+  })
+
   it('passes only non-secret config and prompt fields to completion', async () => {
     const suggestion = {
       description_zh: '描述',

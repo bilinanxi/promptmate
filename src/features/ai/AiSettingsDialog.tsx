@@ -14,6 +14,7 @@ interface AiSettingsDialogProps {
   draft: AiProviderConfig
   apiKey: string
   hasKey: boolean
+  models: string[]
   busy: boolean
   status: string
   error: string
@@ -21,6 +22,8 @@ interface AiSettingsDialogProps {
   onProviderChange(id: AiProviderPresetId): void
   onDraftChange(draft: AiProviderConfig): void
   onApiKeyChange(value: string): void
+  onSyncModels(): void
+  onUseManualModel(): void
   onCheckKey(): void
   onClearKey(): void
   onTest(): void
@@ -33,6 +36,7 @@ export function AiSettingsDialog({
   draft,
   apiKey,
   hasKey,
+  models,
   busy,
   status,
   error,
@@ -40,6 +44,8 @@ export function AiSettingsDialog({
   onProviderChange,
   onDraftChange,
   onApiKeyChange,
+  onSyncModels,
+  onUseManualModel,
   onCheckKey,
   onClearKey,
   onTest,
@@ -102,12 +108,42 @@ export function AiSettingsDialog({
           </label>
           <label>
             模型名称
-            <input
-              value={draft.model}
-              disabled={busy}
-              onChange={(event) => onDraftChange({ ...draft, model: event.target.value })}
-            />
+            {models.length ? (
+              <select
+                value={draft.model}
+                disabled={busy}
+                onChange={(event) => onDraftChange({ ...draft, model: event.target.value })}
+              >
+                <option value="">请选择模型</option>
+                {models.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={draft.model}
+                disabled={busy}
+                onChange={(event) => onDraftChange({ ...draft, model: event.target.value })}
+              />
+            )}
           </label>
+          <div className="model-sync-row">
+            <button
+              type="button"
+              disabled={busy || (!isLocalProvider && !apiKey && !hasKey)}
+              onClick={onSyncModels}
+            >
+              {busy ? '正在同步…' : '同步模型列表'}
+            </button>
+            {models.length ? (
+              <button type="button" disabled={busy} onClick={onUseManualModel}>
+                手动输入模型名称
+              </button>
+            ) : null}
+            <small>从当前服务的官方 /models 接口读取，不会自动替你选择模型。</small>
+          </div>
           <label>
             API Key（可选）
             <span className="api-key-input-wrap">

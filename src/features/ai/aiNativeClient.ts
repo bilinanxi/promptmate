@@ -64,6 +64,7 @@ export interface AiNativeClient {
   saveApiKey(config: AiProviderConfig, apiKey: string): Promise<void>
   deleteApiKey(config: AiProviderConfig): Promise<void>
   hasApiKey(config: AiProviderConfig): Promise<boolean>
+  listModels(config: AiProviderConfig): Promise<string[]>
   testConnection(config: AiProviderConfig): Promise<string>
   complete(
     config: AiProviderConfig,
@@ -102,6 +103,7 @@ export function createAiNativeClient(
       }),
     deleteApiKey: (config) => desktopOnly<void>('delete_ai_api_key', { config }),
     hasApiKey: (config) => desktopOnly<boolean>('has_ai_api_key', { config }),
+    listModels: (config) => desktopOnly<string[]>('list_ai_models', { config }),
     testConnection: (config) => desktopOnly<string>('test_ai_provider', { config }),
     complete: (config, input, mode, requestId) =>
       desktopOnly<AiFieldSuggestion>('complete_prompt_fields', { config, input, mode, requestId }),

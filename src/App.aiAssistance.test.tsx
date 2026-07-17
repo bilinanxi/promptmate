@@ -8,6 +8,7 @@ const aiMocks = vi.hoisted(() => ({
   saveApiKey: vi.fn(),
   deleteApiKey: vi.fn(),
   hasApiKey: vi.fn(),
+  listModels: vi.fn(),
   testConnection: vi.fn(),
   complete: vi.fn(),
   optimize: vi.fn(),
@@ -33,6 +34,7 @@ beforeEach(() => {
   aiMocks.hasApiKey.mockResolvedValue(false)
   aiMocks.saveApiKey.mockResolvedValue(undefined)
   aiMocks.deleteApiKey.mockResolvedValue(undefined)
+  aiMocks.listModels.mockResolvedValue(['example-model'])
   aiMocks.testConnection.mockResolvedValue('连接成功')
   aiMocks.cancel.mockResolvedValue(undefined)
   aiMocks.complete.mockResolvedValue({
@@ -67,6 +69,64 @@ describe('AI provider settings', () => {
     expect(within(dialog).getByRole('textbox', { name: '服务地址' })).toHaveValue(
       'https://generativelanguage.googleapis.com/v1beta/openai',
     )
+  })
+
+  it('syncs official model identifiers and requires the user to choose one', async () => {
+    const credential = ['model', 'sync', 'credential'].join('-')
+    aiMocks.listModels.mockResolvedValueOnce([
+      'MiniMax-M3',
+      'MiniMax-M2.7',
+      'MiniMax-M2.7-highspeed',
+    ])
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'AI 设置' }))
+    const dialog = screen.getByRole('dialog', { name: 'AI 提供商设置' })
+    await user.selectOptions(
+      within(dialog).getByRole('combobox', { name: 'AI 提供商' }),
+      'minimax-cn',
+    )
+    expect(within(dialog).getByRole('textbox', { name: '模型名称' })).toHaveValue('')
+    await user.type(within(dialog).getByLabelText('API Key（可选）'), credential)
+    await user.click(within(dialog).getByRole('button', { name: '同步模型列表' }))
+
+    const endpointConfig = {
+      version: 1,
+      kind: 'openai-compatible',
+      baseUrl: 'https://api.minimaxi.com/v1',
+      model: '',
+    }
+    expect(aiMocks.saveApiKey).toHaveBeenCalledWith(endpointConfig, credential)
+    expect(aiMocks.listModels).toHaveBeenCalledWith(endpointConfig)
+    const model = within(dialog).getByRole('combobox', { name: '模型名称' })
+    expect(model).toHaveValue('')
+    expect(within(model).getByRole('option', { name: 'MiniMax-M3' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('status')).toHaveTextContent('已同步 3 个模型，请选择')
+
+    await user.selectOptions(model, 'MiniMax-M3')
+    await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
+    expect(JSON.parse(localStorage.getItem(AI_PROVIDER_STORAGE_KEY)!)).toEqual({
+      ...endpointConfig,
+      model: 'MiniMax-M3',
+    })
+  })
+
+  it('allows manual model entry after a nonempty model sync', async () => {
+    aiMocks.listModels.mockResolvedValueOnce(['qwen3', 'qwen3-coder'])
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'AI 设置' }))
+    const dialog = screen.getByRole('dialog', { name: 'AI 提供商设置' })
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'AI 提供商' }), 'ollama')
+    await user.click(within(dialog).getByRole('button', { name: '同步模型列表' }))
+    expect(within(dialog).getByRole('combobox', { name: '模型名称' })).toHaveValue('')
+
+    await user.click(within(dialog).getByRole('button', { name: '手动输入模型名称' }))
+    const manualModel = within(dialog).getByRole('textbox', { name: '模型名称' })
+    await user.type(manualModel, 'qwen3-private')
+    expect(manualModel).toHaveValue('qwen3-private')
   })
 
   it('shows remote credential guidance without describing hosted providers as local', async () => {

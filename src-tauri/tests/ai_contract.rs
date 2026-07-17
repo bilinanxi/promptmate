@@ -1,8 +1,8 @@
 use promptmate_lib::ai::{
     cancel_ai_request, complete_prompt_fields, credential_account, delete_ai_api_key,
-    has_ai_api_key, optimize_composed_prompt, parse_completion_content, parse_model_count,
-    parse_optimized_prompt, save_ai_api_key, test_ai_provider, validate_config, AiCompletionInput,
-    AiOptimizedPrompt, AiProviderConfig,
+    has_ai_api_key, list_ai_models, optimize_composed_prompt, parse_completion_content,
+    parse_model_ids, parse_optimized_prompt, save_ai_api_key, test_ai_provider, validate_config,
+    AiCompletionInput, AiOptimizedPrompt, AiProviderConfig,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -76,9 +76,74 @@ fn validates_transport_and_binds_credentials_to_the_exact_endpoint() {
 
 #[test]
 fn accepts_only_the_expected_model_listing_shape() {
-    assert_eq!(parse_model_count(br#"{"data":[]}"#), Ok(0));
-    assert!(parse_model_count(br#"{}"#).is_err());
-    assert!(parse_model_count(br#"{"data":{}}"#).is_err());
+    assert_eq!(
+        parse_model_ids(
+            br#"{"object":"list","data":[{"id":"MiniMax-M3","object":"model"},{"id":"MiniMax-M2.7"},{"id":"MiniMax-M3"}]}"#
+        ),
+        Ok(vec!["MiniMax-M3".into(), "MiniMax-M2.7".into()])
+    );
+    assert!(parse_model_ids(br#"{}"#).is_err());
+    assert!(parse_model_ids(br#"{"data":{}}"#).is_err());
+    assert!(parse_model_ids(br#"{"data":[{"id":""}]}"#).is_err());
+    assert!(parse_model_ids(br#"{"data":[{"id":"bad\u0000model"}]}"#).is_err());
+}
+
+#[test]
+fn lists_exact_provider_model_ids_without_requiring_a_preselected_model() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let body = r#"{"data":[{"id":"MiniMax-M3"},{"id":"MiniMax-M2.7"}]}"#;
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    let mut provider = config(&format!("http://{address}/v1"));
+    provider.model.clear();
+
+    let result = tauri::async_runtime::block_on(list_ai_models(provider));
+    let request = server.join().unwrap();
+
+    assert_eq!(result, Ok(vec!["MiniMax-M3".into(), "MiniMax-M2.7".into()]));
+    assert!(request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn rejects_model_ids_that_reflect_the_bound_credential() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let credential = format!("model-reflection-test-{}", std::process::id());
+    let body = serde_json::json!({
+        "data": [{ "id": format!("unsafe-{credential}") }]
+    })
+    .to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let provider = config(&format!("http://{address}/v1"));
+    let _ = delete_ai_api_key(provider.clone());
+    assert_eq!(save_ai_api_key(provider.clone(), credential), Ok(()));
+
+    let result = tauri::async_runtime::block_on(list_ai_models(provider.clone()));
+    let cleanup = delete_ai_api_key(provider);
+    server.join().unwrap();
+
+    assert_eq!(cleanup, Ok(()));
+    assert_eq!(result, Err("AI 服务返回了不安全的模型列表。".into()));
 }
 
 #[test]
@@ -92,6 +157,9 @@ fn accepts_only_bounded_exact_completion_json() {
     }"#;
     let suggestion = parse_completion_content(content).unwrap();
     assert_eq!(suggestion.tags, vec!["雨夜", "人像"]);
+    assert!(parse_completion_content(&format!("```json\n{content}\n```")).is_ok());
+    assert!(parse_completion_content(&format!("<think>reasoning</think>\n{content}")).is_ok());
+    assert!(parse_completion_content(&format!("Here is the result: {content}")).is_err());
 
     let unknown = r#"{"description_zh":"a","description_en":"b","tags":[],"aliases_zh":[],"aliases_en":[],"extra":true}"#;
     assert!(parse_completion_content(unknown).is_err());
@@ -100,13 +168,17 @@ fn accepts_only_bounded_exact_completion_json() {
 
 #[test]
 fn accepts_only_bounded_exact_bilingual_optimized_prompt_json() {
+    let content = r#"{"zh":" 雨夜霓虹街道 ","en":" Neon-lit rainy street "}"#;
     assert_eq!(
-        parse_optimized_prompt(r#"{"zh":" 雨夜霓虹街道 ","en":" Neon-lit rainy street "}"#),
+        parse_optimized_prompt(content),
         Ok(AiOptimizedPrompt {
             zh: "雨夜霓虹街道".into(),
             en: "Neon-lit rainy street".into(),
         })
     );
+    assert!(parse_optimized_prompt(&format!("```json\n{content}\n```")).is_ok());
+    assert!(parse_optimized_prompt(&format!("<think>reasoning</think>\n{content}")).is_ok());
+    assert!(parse_optimized_prompt(&format!("Result: {content}")).is_err());
     assert!(parse_optimized_prompt(r#"{"zh":"雨夜"}"#).is_err());
     assert!(parse_optimized_prompt(r#"{"zh":"雨夜","en":"Rain","extra":true}"#).is_err());
     assert!(parse_optimized_prompt(r#"{"zh":"","en":"Rain"}"#).is_err());
@@ -161,7 +233,7 @@ fn optimizes_a_composed_prompt_through_the_bounded_contract() {
 fn stores_credentials_in_the_windows_vault_and_sends_them_only_to_the_bound_endpoint() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
-    let body = r#"{"data":[{},{}]}"#;
+    let body = r#"{"data":[{"id":"model-one"},{"id":"model-two"}]}"#;
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
@@ -273,14 +345,15 @@ fn rejects_provider_responses_that_reflect_the_bound_credential() {
     let credential = format!("reflection-test-{}", std::process::id());
     let completion = serde_json::json!({
         "description_zh": "安全描述",
-        "description_en": credential,
+        "description_en": "safe description",
         "tags": [],
         "aliases_zh": [],
         "aliases_en": []
     })
     .to_string();
+    let wrapped = format!("<think>{credential}</think>\n{completion}");
     let body = serde_json::json!({
-        "choices": [{ "message": { "content": completion } }]
+        "choices": [{ "message": { "content": wrapped } }]
     })
     .to_string();
     let response = format!(
@@ -331,11 +404,14 @@ fn rejects_optimized_prompts_that_reflect_the_bound_credential() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let credential = format!("optimization-reflection-test-{}", std::process::id());
+    let optimized = serde_json::json!({
+        "zh": "优化提示词",
+        "en": "optimized prompt"
+    })
+    .to_string();
+    let wrapped = format!("<think>{credential}</think>\n{optimized}");
     let body = serde_json::json!({
-        "choices": [{ "message": { "content": serde_json::json!({
-            "zh": format!("优化 {credential}"),
-            "en": "optimized prompt"
-        }).to_string() } }]
+        "choices": [{ "message": { "content": wrapped } }]
     })
     .to_string();
     let response = format!(

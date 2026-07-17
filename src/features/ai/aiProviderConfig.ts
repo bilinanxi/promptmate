@@ -55,7 +55,6 @@ export interface AiProviderPreset {
   group: AiProviderPresetGroup
   kind: AiProviderKind
   baseUrl: string
-  defaultModel?: string
 }
 
 export const AI_PROVIDER_PRESET_GROUP_LABELS: Record<AiProviderPresetGroup, string> = {
@@ -73,7 +72,6 @@ export const AI_PROVIDER_PRESETS: readonly AiProviderPreset[] = [
     group: 'domestic-model',
     kind: 'openai-compatible',
     baseUrl: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-v4-pro',
   },
   {
     id: 'minimax-cn',
@@ -266,7 +264,7 @@ export function defaultAiProviderPresetConfig(id: AiProviderPresetId): AiProvide
     version: 1,
     kind: preset.kind,
     baseUrl: preset.baseUrl,
-    model: preset.defaultModel ?? '',
+    model: '',
   }
 }
 
@@ -284,21 +282,6 @@ export function resolveAiProviderPresetId(config: AiProviderConfig): AiProviderP
         normalizedEndpoint(preset.baseUrl) === endpoint,
     )?.id ?? 'custom'
   )
-}
-
-const DEEPSEEK_MODEL_IDS = [
-  'deepseek-v4-pro',
-  'deepseek-v4-flash',
-  'deepseek-chat',
-  'deepseek-reasoner',
-] as const
-
-export function normalizeAiProviderConfig(config: AiProviderConfig): AiProviderConfig {
-  if (resolveAiProviderPresetId(config) !== 'deepseek') return config
-  const model = DEEPSEEK_MODEL_IDS.find(
-    (candidate) => candidate.toLowerCase() === config.model.toLowerCase(),
-  )
-  return model && model !== config.model ? { ...config, model } : config
 }
 
 const defaults: Record<AiProviderKind, AiProviderConfig> = {
@@ -336,7 +319,7 @@ function isLoopback(hostname: string): boolean {
   return hostname.split('.').every((part) => Number(part) <= 255)
 }
 
-export function validateAiProviderConfig(config: AiProviderConfig): string {
+export function validateAiProviderEndpoint(config: AiProviderConfig): string {
   if (config.version !== 1 || !isProviderKind(config.kind)) return 'AI 服务配置版本或类型无效。'
   if (config.baseUrl.length > 2048) return 'AI 服务地址无效。'
   let url: URL
@@ -349,6 +332,12 @@ export function validateAiProviderConfig(config: AiProviderConfig): string {
   if (url.username || url.password || url.search || url.hash)
     return '服务地址不能包含凭据、查询或片段。'
   if (url.protocol === 'http:' && !isLoopback(url.hostname)) return '远程服务必须使用 HTTPS。'
+  return ''
+}
+
+export function validateAiProviderConfig(config: AiProviderConfig): string {
+  const endpointError = validateAiProviderEndpoint(config)
+  if (endpointError) return endpointError
   if (!config.model.trim()) return '模型名称不能为空。'
   if (
     config.model.length > 200 ||
@@ -383,7 +372,7 @@ export function loadAiProviderConfig(storage: StorageReader): AiProviderConfig {
     const raw = storage.getItem(AI_PROVIDER_STORAGE_KEY)
     if (raw === null) return fallback
     const value: unknown = JSON.parse(raw)
-    return isConfig(value) ? normalizeAiProviderConfig(value) : fallback
+    return isConfig(value) ? value : fallback
   } catch {
     return fallback
   }

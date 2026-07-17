@@ -1277,6 +1277,35 @@ textarea.output-text {
   line-height: 1.5;
 }
 
+.model-sync-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -5px;
+}
+
+.model-sync-row button {
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border: 1px solid #b7c5d9;
+  border-radius: 8px;
+  color: #1d4ed8;
+  background: #f8fbff;
+  font-weight: 650;
+}
+
+.model-sync-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.model-sync-row small {
+  color: #687386;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .credential-state,
 .ai-security-note,
 .ai-settings-form [role='alert'],

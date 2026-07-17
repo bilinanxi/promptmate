@@ -215,19 +215,39 @@ fn authorized(request: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::R
     }
 }
 
-pub fn parse_model_count(body: &[u8]) -> Result<usize, String> {
+pub fn parse_model_ids(body: &[u8]) -> Result<Vec<String>, String> {
     let value: Value = serde_json::from_slice(body).map_err(|_| "AI 服务返回了无效 JSON。")?;
-    value
+    let data = value
         .get("data")
         .and_then(Value::as_array)
-        .map(Vec::len)
-        .ok_or_else(|| "AI 服务返回了无效的模型列表。".to_string())
+        .ok_or_else(|| "AI 服务返回了无效的模型列表。".to_string())?;
+    if data.len() > 512 {
+        return Err("AI 服务返回的模型过多。".into());
+    }
+    let mut seen = HashSet::new();
+    let mut models = Vec::with_capacity(data.len());
+    for item in data {
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "AI 服务返回了无效的模型列表。".to_string())?;
+        if id.is_empty()
+            || id.trim() != id
+            || id.chars().count() > 200
+            || id.chars().any(char::is_control)
+        {
+            return Err("AI 服务返回了无效的模型名称。".into());
+        }
+        if seen.insert(id) {
+            models.push(id.to_owned());
+        }
+    }
+    Ok(models)
 }
 
-#[tauri::command]
-pub async fn test_ai_provider(config: AiProviderConfig) -> Result<String, String> {
-    let base = validate_config(&config)?;
-    let key = api_key(&config, &base)?;
+async fn fetch_models(config: &AiProviderConfig) -> Result<Vec<String>, String> {
+    let base = validate_endpoint(config)?;
+    let key = api_key(config, &base)?;
     let response = authorized(client()?.get(endpoint(&base, "models")?), key.as_deref())
         .send()
         .await
@@ -236,8 +256,25 @@ pub async fn test_ai_provider(config: AiProviderConfig) -> Result<String, String
     if !status.is_success() {
         return Err(format!("AI 服务返回 HTTP {}。", status.as_u16()));
     }
-    let body = bounded_body(response).await?;
-    let count = parse_model_count(&body)?;
+    let models = parse_model_ids(&bounded_body(response).await?)?;
+    if key
+        .as_deref()
+        .filter(|secret| !secret.is_empty())
+        .is_some_and(|secret| models.iter().any(|model| model.contains(secret)))
+    {
+        return Err("AI 服务返回了不安全的模型列表。".into());
+    }
+    Ok(models)
+}
+
+#[tauri::command]
+pub async fn list_ai_models(config: AiProviderConfig) -> Result<Vec<String>, String> {
+    fetch_models(&config).await
+}
+
+#[tauri::command]
+pub async fn test_ai_provider(config: AiProviderConfig) -> Result<String, String> {
+    let count = fetch_models(&config).await?.len();
     Ok(format!("连接成功，服务返回 {count} 个模型。"))
 }
 
@@ -263,6 +300,22 @@ fn temperature(mode: &str) -> Result<f32, String> {
     }
 }
 
+fn apply_structured_output_compatibility(request: &mut Value, base: &Url, model: &str) {
+    if matches!(base.host_str(), Some("api.minimaxi.com" | "api.minimax.io")) {
+        request["reasoning_split"] = json!(true);
+        if model.eq_ignore_ascii_case("MiniMax-M3") {
+            request["thinking"] = json!({ "type": "disabled" });
+        }
+    }
+}
+
+fn apply_optimization_compatibility(request: &mut Value, base: &Url, model: &str) {
+    apply_structured_output_compatibility(request, base, model);
+    if base.host_str() == Some("api.deepseek.com") {
+        request["thinking"] = json!({ "type": "disabled" });
+    }
+}
+
 fn normalize_list(values: &mut Vec<String>) -> Result<(), String> {
     if values.len() > 32 {
         return Err("AI 返回的列表项目过多。".into());
@@ -278,12 +331,30 @@ fn normalize_list(values: &mut Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+fn known_structured_json(content: &str) -> Option<&str> {
+    let mut value = content.trim();
+    if let Some(reasoning) = value.strip_prefix("<think>") {
+        let closing = reasoning.find("</think>")?;
+        value = reasoning.get(closing + "</think>".len()..)?.trim();
+    }
+    if let Some(fenced) = value
+        .strip_prefix("```json\n")
+        .or_else(|| value.strip_prefix("```json\r\n"))
+        .or_else(|| value.strip_prefix("```\n"))
+        .or_else(|| value.strip_prefix("```\r\n"))
+    {
+        value = fenced.strip_suffix("```")?.trim();
+    }
+    Some(value)
+}
+
 pub fn parse_completion_content(content: &str) -> Result<AiFieldSuggestion, String> {
     if content.len() > MAX_COMPLETION_BYTES {
         return Err("AI 补全结果过大。".into());
     }
     let mut value: AiFieldSuggestion =
-        serde_json::from_str(content).map_err(|_| "AI 未返回严格的补全 JSON。")?;
+        serde_json::from_str(known_structured_json(content).ok_or("AI 未返回严格的补全 JSON。")?)
+            .map_err(|_| "AI 未返回严格的补全 JSON。")?;
     value.description_zh = value.description_zh.trim().to_owned();
     value.description_en = value.description_en.trim().to_owned();
     if value.description_zh.chars().count() > 2000 || value.description_en.chars().count() > 2000 {
@@ -321,7 +392,7 @@ async fn perform_completion(
     let base = validate_config(&config)?;
     let key = api_key(&config, &base)?;
     let user_content = serde_json::to_string(&input).map_err(|_| "AI 补全输入无效。")?;
-    let request = json!({
+    let mut request = json!({
         "model": config.model,
         "temperature": temperature(&mode)?,
         "messages": [
@@ -332,6 +403,7 @@ async fn perform_completion(
             { "role": "user", "content": user_content }
         ]
     });
+    apply_structured_output_compatibility(&mut request, &base, &config.model);
     let response = authorized(
         client()?
             .post(endpoint(&base, "chat/completions")?)
@@ -351,6 +423,13 @@ async fn perform_completion(
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
         .ok_or_else(|| "AI 服务响应缺少补全内容。".to_string())?;
+    if key
+        .as_deref()
+        .filter(|secret| !secret.is_empty())
+        .is_some_and(|secret| content.contains(secret))
+    {
+        return Err("AI 服务返回了不安全的补全内容。".into());
+    }
     let suggestion = parse_completion_content(content)?;
     if suggestion_contains_secret(&suggestion, key.as_deref()) {
         return Err("AI 服务返回了不安全的补全内容。".into());
@@ -363,7 +442,8 @@ pub fn parse_optimized_prompt(content: &str) -> Result<AiOptimizedPrompt, String
         return Err("AI 优化结果过大。".into());
     }
     let mut value: AiOptimizedPrompt =
-        serde_json::from_str(content.trim()).map_err(|_| "AI 返回了无效的优化结果。")?;
+        serde_json::from_str(known_structured_json(content).ok_or("AI 返回了无效的优化结果。")?)
+            .map_err(|_| "AI 返回了无效的优化结果。")?;
     value.zh = value.zh.trim().to_owned();
     value.en = value.en.trim().to_owned();
     let invalid = |prompt: &str| {
@@ -397,9 +477,7 @@ fn optimization_request(
             { "role": "user", "content": input }
         ]
     });
-    if base.host_str() == Some("api.deepseek.com") {
-        request["thinking"] = json!({ "type": "disabled" });
-    }
+    apply_optimization_compatibility(&mut request, base, &config.model);
     Ok(request)
 }
 
@@ -438,6 +516,13 @@ async fn perform_prompt_optimization(
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
         .ok_or_else(|| "AI 服务响应缺少优化内容。".to_string())?;
+    if key
+        .as_deref()
+        .filter(|secret| !secret.is_empty())
+        .is_some_and(|secret| content.contains(secret))
+    {
+        return Err("AI 服务返回了不安全的优化内容。".into());
+    }
     let optimized = parse_optimized_prompt(content)?;
     if key
         .as_deref()
@@ -584,8 +669,9 @@ pub async fn optimize_composed_prompt(
 #[cfg(test)]
 mod tests {
     use super::{
-        cancel_ai_request, optimization_request, register_request, suggestion_contains_secret,
-        AiFieldSuggestion, AiProviderConfig, RequestGuard,
+        apply_structured_output_compatibility, cancel_ai_request, optimization_request,
+        register_request, suggestion_contains_secret, AiFieldSuggestion, AiProviderConfig,
+        RequestGuard,
     };
     use tokio::sync::oneshot::error::TryRecvError;
     use url::Url;
@@ -598,6 +684,14 @@ mod tests {
             base_url: "https://api.deepseek.com/v1".into(),
             model: "deepseek-v4-pro".into(),
         };
+        let mut completion = serde_json::json!({});
+        apply_structured_output_compatibility(
+            &mut completion,
+            &Url::parse(&config.base_url).unwrap(),
+            &config.model,
+        );
+        assert!(completion.get("thinking").is_none());
+
         let deepseek = optimization_request(
             &config,
             &Url::parse(&config.base_url).unwrap(),
@@ -617,6 +711,36 @@ mod tests {
         )
         .unwrap();
         assert!(custom.get("thinking").is_none());
+    }
+
+    #[test]
+    fn separates_minimax_reasoning_and_disables_m3_thinking_on_exact_official_hosts() {
+        for host in ["api.minimaxi.com", "api.minimax.io"] {
+            let base = Url::parse(&format!("https://{host}/v1")).unwrap();
+            let mut m3 = serde_json::json!({});
+            apply_structured_output_compatibility(&mut m3, &base, "MiniMax-M3");
+            assert_eq!(m3["thinking"]["type"], "disabled");
+            assert_eq!(m3["reasoning_split"], true);
+
+            let mut m2 = serde_json::json!({});
+            apply_structured_output_compatibility(&mut m2, &base, "MiniMax-M2.7");
+            assert!(m2.get("thinking").is_none());
+            assert_eq!(m2["reasoning_split"], true);
+        }
+
+        for endpoint in [
+            "https://api.minimax.io.evil.example/v1",
+            "https://proxy.example/v1",
+        ] {
+            let mut request = serde_json::json!({});
+            apply_structured_output_compatibility(
+                &mut request,
+                &Url::parse(endpoint).unwrap(),
+                "MiniMax-M3",
+            );
+            assert!(request.get("thinking").is_none());
+            assert!(request.get("reasoning_split").is_none());
+        }
     }
 
     #[test]

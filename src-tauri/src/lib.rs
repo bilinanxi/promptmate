@@ -9,6 +9,7 @@ pub fn run() {
             ai::save_ai_api_key,
             ai::delete_ai_api_key,
             ai::has_ai_api_key,
+            ai::list_ai_models,
             ai::test_ai_provider,
             ai::complete_prompt_fields,
             ai::optimize_composed_prompt,

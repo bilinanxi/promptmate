@@ -4,8 +4,8 @@ import {
   defaultAiProviderPresetConfig,
   defaultAiProviderConfig,
   loadAiProviderConfig,
-  normalizeAiProviderConfig,
   saveAiProviderConfig,
+  validateAiProviderEndpoint,
   validateAiProviderConfig,
   type AiProviderConfig,
   type AiProviderPresetId,
@@ -380,6 +380,7 @@ export function App() {
   const [aiSettingsDraft, setAiSettingsDraft] = useState<AiProviderConfig>(aiConfig)
   const [aiApiKey, setAiApiKey] = useState('')
   const [aiHasKey, setAiHasKey] = useState(false)
+  const [aiModels, setAiModels] = useState<string[]>([])
   const [aiSettingsBusy, setAiSettingsBusy] = useState(false)
   const [aiSettingsStatus, setAiSettingsStatus] = useState('')
   const [aiSettingsError, setAiSettingsError] = useState('')
@@ -1039,6 +1040,7 @@ export function App() {
     const attempt = ++aiSettingsAttempt.current
     aiSettingsPending.current = false
     setAiSettingsDraft(aiConfig)
+    setAiModels([])
     setAiHasKey(false)
     setAiSettingsBusy(false)
     setAiSettingsStatus('')
@@ -1058,6 +1060,7 @@ export function App() {
     aiSettingsPending.current = false
     setAiSettingsBusy(false)
     setAiSettingsOpen(false)
+    setAiModels([])
     setAiSettingsStatus('')
     setAiSettingsError('')
   }
@@ -1067,6 +1070,7 @@ export function App() {
     const attempt = ++aiSettingsAttempt.current
     aiSettingsPending.current = true
     setAiSettingsDraft(config)
+    setAiModels([])
     setAiApiKey('')
     setAiHasKey(false)
     setAiSettingsBusy(true)
@@ -1088,19 +1092,35 @@ export function App() {
   function updateAiSettingsDraft(config: AiProviderConfig) {
     aiSettingsAttempt.current += 1
     aiSettingsPending.current = false
+    const endpointChanged =
+      config.baseUrl !== aiSettingsDraft.baseUrl || config.kind !== aiSettingsDraft.kind
+    if (endpointChanged) {
+      setAiModels([])
+      setAiHasKey(false)
+    }
     setAiSettingsDraft(config)
-    setAiHasKey(false)
     setAiSettingsBusy(false)
     setAiSettingsStatus('')
     setAiSettingsError('')
   }
 
+  function updateAiApiKey(value: string) {
+    setAiApiKey(value)
+    setAiModels([])
+  }
+
+  function useManualAiModel() {
+    setAiModels([])
+    setAiSettingsStatus('已切换为手动输入，请填写服务官网提供的模型名称。')
+    setAiSettingsError('')
+  }
+
   function normalizedAiDraft(): AiProviderConfig {
-    return normalizeAiProviderConfig({
+    return {
       ...aiSettingsDraft,
       baseUrl: aiSettingsDraft.baseUrl.trim().replace(/\/+$/, ''),
       model: aiSettingsDraft.model.trim(),
-    })
+    }
   }
 
   async function checkAiApiKey() {
@@ -1118,6 +1138,49 @@ export function App() {
       setAiSettingsStatus(hasKey ? '当前服务已保存 API Key。' : '当前服务没有已保存的 API Key。')
     } catch (error) {
       if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error))
+    } finally {
+      if (attempt === aiSettingsAttempt.current) {
+        aiSettingsPending.current = false
+        setAiSettingsBusy(false)
+      }
+    }
+  }
+
+  async function syncAiModels() {
+    if (aiSettingsPending.current) return
+    const config = normalizedAiDraft()
+    const validationError = validateAiProviderEndpoint(config)
+    if (validationError) {
+      setAiSettingsError(validationError)
+      return
+    }
+    const attempt = ++aiSettingsAttempt.current
+    aiSettingsPending.current = true
+    setAiSettingsBusy(true)
+    setAiSettingsStatus('')
+    setAiSettingsError('')
+    try {
+      if (aiApiKey) {
+        await aiNativeClient.saveApiKey(config, aiApiKey)
+        if (attempt !== aiSettingsAttempt.current) return
+        setAiHasKey(true)
+      }
+      const models = await aiNativeClient.listModels(config)
+      if (attempt !== aiSettingsAttempt.current) return
+      setAiModels(models)
+      setAiSettingsDraft({ ...config, model: models.includes(config.model) ? config.model : '' })
+      setAiSettingsStatus(
+        models.length
+          ? `已同步 ${models.length} 个模型，请选择要使用的模型。`
+          : '服务没有返回可选模型，可手动输入模型名称。',
+      )
+    } catch (error) {
+      if (attempt === aiSettingsAttempt.current) {
+        setAiModels([])
+        setAiSettingsError(
+          `${safeAiError(error, aiApiKey)} 未能同步模型时仍可手动输入官网模型名称。`,
+        )
+      }
     } finally {
       if (attempt === aiSettingsAttempt.current) {
         aiSettingsPending.current = false
@@ -1213,6 +1276,7 @@ export function App() {
       if (attempt !== aiSettingsAttempt.current) return
       setAiHasKey(false)
       setAiApiKey('')
+      setAiModels([])
       setAiSettingsStatus('已清除当前服务的 API Key。')
     } catch (error) {
       if (attempt === aiSettingsAttempt.current) setAiSettingsError(safeAiError(error))
@@ -2159,13 +2223,16 @@ export function App() {
           draft={aiSettingsDraft}
           apiKey={aiApiKey}
           hasKey={aiHasKey}
+          models={aiModels}
           busy={aiSettingsBusy}
           status={aiSettingsStatus}
           error={aiSettingsError}
           onClose={closeAiSettings}
           onProviderChange={changeAiProvider}
           onDraftChange={updateAiSettingsDraft}
-          onApiKeyChange={setAiApiKey}
+          onApiKeyChange={updateAiApiKey}
+          onSyncModels={syncAiModels}
+          onUseManualModel={useManualAiModel}
           onCheckKey={checkAiApiKey}
           onClearKey={clearAiApiKey}
           onTest={testAiConnection}
