@@ -14,6 +14,7 @@ pub fn run() {
             ai::complete_prompt_fields,
             ai::optimize_composed_prompt,
             ai::generate_prompt_from_image,
+            ai::generate_prompt_from_video,
             ai::cancel_ai_request
         ])
         .setup(|app| {

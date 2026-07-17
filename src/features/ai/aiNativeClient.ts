@@ -29,8 +29,17 @@ export interface AiOptimizedPrompt {
 }
 
 export interface ImagePromptInput {
-  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  mimeType: 'image/jpeg'
   base64: string
+}
+
+export interface VideoPromptInput {
+  durationMs: number
+  frames: Array<{
+    timestampMs: number
+    mimeType: 'image/jpeg'
+    base64: string
+  }>
 }
 
 function isStringList(value: unknown): value is string[] {
@@ -89,6 +98,12 @@ export interface AiNativeClient {
     mode: AiCreativityMode,
     requestId: string,
   ): Promise<AiOptimizedPrompt>
+  generateFromVideo(
+    config: AiProviderConfig,
+    input: VideoPromptInput,
+    mode: AiCreativityMode,
+    requestId: string,
+  ): Promise<AiOptimizedPrompt>
   cancel(requestId: string): Promise<void>
 }
 
@@ -128,6 +143,13 @@ export function createAiNativeClient(
       }),
     generateFromImage: (config, input, mode, requestId) =>
       desktopOnly<AiOptimizedPrompt>('generate_prompt_from_image', {
+        config,
+        input,
+        mode,
+        requestId,
+      }),
+    generateFromVideo: (config, input, mode, requestId) =>
+      desktopOnly<AiOptimizedPrompt>('generate_prompt_from_video', {
         config,
         input,
         mode,

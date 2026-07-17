@@ -1,9 +1,14 @@
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use image::codecs::jpeg::JpegEncoder;
+use image::ExtendedColorType;
 use promptmate_lib::ai::{
     cancel_ai_request, complete_prompt_fields, credential_account, delete_ai_api_key,
-    generate_prompt_from_image, has_ai_api_key, list_ai_models, optimize_composed_prompt,
-    parse_completion_content, parse_image_prompt_content, parse_model_ids, parse_optimized_prompt,
-    save_ai_api_key, test_ai_provider, validate_config, AiCompletionInput, AiOptimizedPrompt,
-    AiProviderConfig, ImagePromptInput,
+    generate_prompt_from_image, generate_prompt_from_video, has_ai_api_key, list_ai_models,
+    optimize_composed_prompt, parse_completion_content, parse_image_prompt_content,
+    parse_model_ids, parse_optimized_prompt, parse_video_prompt_content, save_ai_api_key,
+    test_ai_provider, validate_config, AiCompletionInput, AiOptimizedPrompt, AiProviderConfig,
+    ImagePromptInput, VideoPromptFrameInput, VideoPromptInput,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -17,6 +22,26 @@ fn config(base_url: &str) -> AiProviderConfig {
         base_url: base_url.into(),
         model: "example-model".into(),
     }
+}
+
+fn valid_jpeg_base64(red: u8) -> String {
+    let mut bytes = Vec::new();
+    JpegEncoder::new_with_quality(&mut bytes, 82)
+        .encode(&[red, 64, 128], 1, 1, ExtendedColorType::Rgb8)
+        .unwrap();
+    BASE64.encode(bytes)
+}
+
+fn jpeg_with_metadata_base64(red: u8) -> String {
+    let bytes = BASE64.decode(valid_jpeg_base64(red)).unwrap();
+    let payload = b"Exif\0\0PromptMateMeta";
+    let length = (payload.len() as u16 + 2).to_be_bytes();
+    let mut with_metadata = Vec::with_capacity(bytes.len() + payload.len() + 4);
+    with_metadata.extend_from_slice(&bytes[..2]);
+    with_metadata.extend_from_slice(&[0xff, 0xe1, length[0], length[1]]);
+    with_metadata.extend_from_slice(payload);
+    with_metadata.extend_from_slice(&bytes[2..]);
+    BASE64.encode(with_metadata)
 }
 
 fn read_request(stream: &mut TcpStream) -> Vec<u8> {
@@ -199,6 +224,22 @@ fn image_prompts_use_a_tighter_bilingual_output_limit() {
 }
 
 #[test]
+fn video_prompts_use_a_strict_tighter_bilingual_output_contract() {
+    let valid = serde_json::json!({ "zh": "镜头推进", "en": "Camera pushes in" }).to_string();
+    assert!(parse_video_prompt_content(&valid).is_ok());
+    let oversized = serde_json::json!({ "zh": "镜".repeat(4_097), "en": "safe" }).to_string();
+    assert_eq!(
+        parse_video_prompt_content(&oversized),
+        Err("AI 返回了无效的视频提示词。".into())
+    );
+    let extra = serde_json::json!({ "zh": "安全", "en": "safe", "audio": "guessed" }).to_string();
+    assert_eq!(
+        parse_video_prompt_content(&extra),
+        Err("AI 返回了无效的视频提示词。".into())
+    );
+}
+
+#[test]
 fn optimizes_a_composed_prompt_through_the_bounded_contract() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -283,6 +324,234 @@ fn generates_bilingual_prompts_from_a_bounded_image_contract() {
     assert!(request.contains(&format!("data:image/jpeg;base64,{image_base64}")));
     assert!(request.contains("image_url"));
     assert!(request.contains("\"max_tokens\":512"));
+}
+
+#[test]
+fn generates_bilingual_video_prompts_from_ordered_bounded_frames() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let body = serde_json::json!({
+        "choices": [{ "message": { "content": "{\"zh\":\"红色陶瓷杯从桌边滑向中央，镜头缓慢推进，柔和侧光。\",\"en\":\"A red ceramic mug slides from the table edge to the center as the camera slowly pushes in under soft side lighting.\"}" } }]
+    })
+    .to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    let frames = [
+        jpeg_with_metadata_base64(32),
+        valid_jpeg_base64(128),
+        valid_jpeg_base64(224),
+    ];
+
+    let result = tauri::async_runtime::block_on(generate_prompt_from_video(
+        config(&format!("http://{address}/v1")),
+        VideoPromptInput {
+            duration_ms: 12_000,
+            frames: frames
+                .iter()
+                .enumerate()
+                .map(|(index, base64)| VideoPromptFrameInput {
+                    timestamp_ms: 1_000 + index as u64 * 5_000,
+                    mime_type: "image/jpeg".into(),
+                    base64: base64.clone(),
+                })
+                .collect(),
+        },
+        "balanced".into(),
+        "video-contract".into(),
+    ));
+    let request = server.join().unwrap();
+
+    assert_eq!(
+        result,
+        Ok(AiOptimizedPrompt {
+            zh: "红色陶瓷杯从桌边滑向中央，镜头缓慢推进，柔和侧光。".into(),
+            en: "A red ceramic mug slides from the table edge to the center as the camera slowly pushes in under soft side lighting.".into(),
+        })
+    );
+    assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
+    assert_eq!(request.matches("data:image/jpeg;base64,").count(), 3);
+    let request_body = request.split_once("\r\n\r\n").unwrap().1;
+    let request_json: serde_json::Value = serde_json::from_str(request_body).unwrap();
+    let sent_frames = request_json["messages"][1]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|part| part["image_url"]["url"].as_str());
+    for data_url in sent_frames {
+        let bytes = BASE64
+            .decode(data_url.strip_prefix("data:image/jpeg;base64,").unwrap())
+            .unwrap();
+        assert!(image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).is_ok());
+        assert!(!bytes.windows(4).any(|window| window == b"Exif"));
+        assert!(!bytes
+            .windows(b"PromptMateMeta".len())
+            .any(|window| window == b"PromptMateMeta"));
+    }
+    assert_eq!(request.matches("\"type\":\"image_url\"").count(), 3);
+    assert!(request.contains("chronological"));
+    assert!(request.contains("camera movement"));
+    assert!(request.contains("\"max_tokens\":700"));
+}
+
+#[test]
+fn rejects_invalid_video_frame_contracts_before_network() {
+    let provider = config("https://api.example.com/v1");
+    let valid_frame = |timestamp_ms| VideoPromptFrameInput {
+        timestamp_ms,
+        mime_type: "image/jpeg".into(),
+        base64: valid_jpeg_base64(128),
+    };
+    let cases = [
+        (
+            VideoPromptInput {
+                duration_ms: 0,
+                frames: vec![valid_frame(100), valid_frame(500)],
+            },
+            "video-zero-duration",
+            "视频时长必须在 1 到 60 秒之间。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 60_001,
+                frames: vec![valid_frame(100), valid_frame(500)],
+            },
+            "video-too-long",
+            "视频时长必须在 1 到 60 秒之间。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![valid_frame(100)],
+            },
+            "video-too-few-frames",
+            "视频必须包含 3 到 6 个有序时间采样帧。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: (0..7).map(|_| valid_frame(100)).collect(),
+            },
+            "video-too-many-frames",
+            "视频必须包含 3 到 6 个有序时间采样帧。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![
+                    valid_frame(100),
+                    VideoPromptFrameInput {
+                        timestamp_ms: 500,
+                        mime_type: "image/png".into(),
+                        base64: "/9j/2Q==".into(),
+                    },
+                    valid_frame(900),
+                ],
+            },
+            "video-invalid-frame-type",
+            "视频时间采样帧必须是已去除元数据的 JPEG 图片。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![
+                    valid_frame(100),
+                    VideoPromptFrameInput {
+                        timestamp_ms: 500,
+                        mime_type: "image/jpeg".into(),
+                        base64: "/9j/2Q==".into(),
+                    },
+                    valid_frame(900),
+                ],
+            },
+            "video-malformed-jpeg",
+            "视频时间采样帧格式与文件内容不一致。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![
+                    valid_frame(100),
+                    VideoPromptFrameInput {
+                        timestamp_ms: 500,
+                        mime_type: "image/jpeg".into(),
+                        base64: "/9j/".into(),
+                    },
+                    valid_frame(900),
+                ],
+            },
+            "video-spoofed-frame",
+            "视频时间采样帧格式与文件内容不一致。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![
+                    valid_frame(100),
+                    VideoPromptFrameInput {
+                        timestamp_ms: 500,
+                        mime_type: "image/jpeg".into(),
+                        base64: "%%%%".into(),
+                    },
+                    valid_frame(900),
+                ],
+            },
+            "video-invalid-base64",
+            "视频时间采样帧数据无效。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![valid_frame(100), valid_frame(100), valid_frame(900)],
+            },
+            "video-unordered-timestamps",
+            "视频时间采样帧时间戳必须严格递增且位于视频时长内。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![valid_frame(100), valid_frame(500), valid_frame(1_000)],
+            },
+            "video-out-of-range-timestamp",
+            "视频时间采样帧时间戳必须严格递增且位于视频时长内。",
+        ),
+        (
+            VideoPromptInput {
+                duration_ms: 1_000,
+                frames: vec![
+                    valid_frame(100),
+                    VideoPromptFrameInput {
+                        timestamp_ms: 500,
+                        mime_type: "image/jpeg".into(),
+                        base64: "A".repeat(873_817),
+                    },
+                    valid_frame(900),
+                ],
+            },
+            "video-frame-too-large",
+            "视频时间采样帧为空或单帧超过 640 KiB。",
+        ),
+    ];
+
+    for (input, request_id, expected) in cases {
+        assert_eq!(
+            tauri::async_runtime::block_on(generate_prompt_from_video(
+                provider.clone(),
+                input,
+                "balanced".into(),
+                request_id.into(),
+            )),
+            Err(expected.into())
+        );
+    }
 }
 
 #[test]
@@ -377,6 +646,73 @@ fn rejects_image_prompt_responses_that_reflect_the_bound_credential() {
 
     assert_eq!(cleanup, Ok(()));
     assert_eq!(result, Err("AI 服务返回了不安全的图片提示词。".into()));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn rejects_video_prompt_responses_that_reflect_the_bound_credential() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let credential = format!("video-reflection-test-{}", std::process::id());
+    let escaped_credential = credential
+        .chars()
+        .map(|character| format!("\\u{:04x}", character as u32))
+        .collect::<String>();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "reasoning_content": credential,
+                "content": "{\"zh\":\"安全视频提示词\",\"en\":\"Safe video prompt\"}"
+            }
+        }]
+    })
+    .to_string()
+    .replace(&credential, &escaped_credential);
+    assert!(!body.contains(&credential));
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = read_request(&mut stream);
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let endpoint = config(&format!("http://{address}/v1"));
+    let _ = delete_ai_api_key(endpoint.clone());
+    assert_eq!(save_ai_api_key(endpoint.clone(), credential), Ok(()));
+
+    let result = tauri::async_runtime::block_on(generate_prompt_from_video(
+        endpoint.clone(),
+        VideoPromptInput {
+            duration_ms: 3_000,
+            frames: vec![
+                VideoPromptFrameInput {
+                    timestamp_ms: 500,
+                    mime_type: "image/jpeg".into(),
+                    base64: valid_jpeg_base64(32),
+                },
+                VideoPromptFrameInput {
+                    timestamp_ms: 1_500,
+                    mime_type: "image/jpeg".into(),
+                    base64: valid_jpeg_base64(128),
+                },
+                VideoPromptFrameInput {
+                    timestamp_ms: 2_500,
+                    mime_type: "image/jpeg".into(),
+                    base64: valid_jpeg_base64(224),
+                },
+            ],
+        },
+        "balanced".into(),
+        "video-reflection".into(),
+    ));
+    let cleanup = delete_ai_api_key(endpoint);
+    server.join().unwrap();
+
+    assert_eq!(cleanup, Ok(()));
+    assert_eq!(result, Err("AI 服务返回了不安全的视频提示词。".into()));
 }
 
 #[cfg(target_os = "windows")]

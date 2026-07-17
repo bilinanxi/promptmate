@@ -102,16 +102,39 @@ describe('AI native client', () => {
     await expect(
       client.generateFromImage(
         config,
-        { mimeType: 'image/png', base64: 'iVBORw0KGgo=' },
+        { mimeType: 'image/jpeg', base64: '/9j/2Q==' },
         'balanced',
         'image-1',
       ),
     ).resolves.toEqual(prompt)
     expect(invoke).toHaveBeenCalledWith('generate_prompt_from_image', {
       config,
-      input: { mimeType: 'image/png', base64: 'iVBORw0KGgo=' },
+      input: { mimeType: 'image/jpeg', base64: '/9j/2Q==' },
       mode: 'balanced',
       requestId: 'image-1',
+    })
+  })
+
+  it('passes bounded ordered video frames through the native multimodal command', async () => {
+    const prompt = { zh: '镜头缓慢推进。', en: 'The camera slowly pushes in.' }
+    const invoke = vi.fn().mockResolvedValue(prompt)
+    const client = createAiNativeClient({ isTauri: () => true, invoke })
+    const video = {
+      durationMs: 12_000,
+      frames: [
+        { timestampMs: 1_000, mimeType: 'image/jpeg' as const, base64: '/9j/2Q==' },
+        { timestampMs: 9_000, mimeType: 'image/jpeg' as const, base64: '/9j/AAH/2Q==' },
+      ],
+    }
+
+    await expect(client.generateFromVideo(config, video, 'balanced', 'video-1')).resolves.toEqual(
+      prompt,
+    )
+    expect(invoke).toHaveBeenCalledWith('generate_prompt_from_video', {
+      config,
+      input: video,
+      mode: 'balanced',
+      requestId: 'video-1',
     })
   })
 

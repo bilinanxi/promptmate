@@ -19,6 +19,7 @@ import {
 } from './features/ai/aiNativeClient'
 import { AiCompletionPanel } from './features/ai/AiCompletionPanel'
 import { ImagePromptWorkspace } from './features/ai/ImagePromptWorkspace'
+import { VideoPromptWorkspace } from './features/ai/VideoPromptWorkspace'
 import { AiSettingsDialog } from './features/ai/AiSettingsDialog'
 import {
   applyAiSuggestionWithoutStaleOverwrite,
@@ -378,6 +379,7 @@ export function App() {
   const [mediaType, setMediaType] = useState<MediaType>('image')
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const [imagePromptOpen, setImagePromptOpen] = useState(false)
+  const [videoPromptOpen, setVideoPromptOpen] = useState(false)
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(loadAiConfig)
   const [aiSettingsDraft, setAiSettingsDraft] = useState<AiProviderConfig>(aiConfig)
   const [aiApiKey, setAiApiKey] = useState('')
@@ -1632,6 +1634,7 @@ export function App() {
     setDeletePromptId(null)
     setMediaType(nextMediaType)
     setImagePromptOpen(false)
+    setVideoPromptOpen(false)
     setLibraryView('all')
     setBasket({ selectedIds: [], undoSelection: null })
     setRecommendationOffset(0)
@@ -1863,6 +1866,16 @@ export function App() {
                     图片转提示词
                   </button>
                 ) : null}
+                {mediaType === 'video' ? (
+                  <button
+                    type="button"
+                    className="image-prompt-button"
+                    aria-pressed={videoPromptOpen}
+                    onClick={() => setVideoPromptOpen((open) => !open)}
+                  >
+                    视频转提示词
+                  </button>
+                ) : null}
                 <button type="button" className="ai-settings-button" onClick={openAiSettings}>
                   AI 设置
                 </button>
@@ -1881,6 +1894,13 @@ export function App() {
             </div>
             {mediaType === 'image' && imagePromptOpen ? (
               <ImagePromptWorkspace
+                config={aiConfig}
+                mode={aiMode}
+                onOpenSettings={openAiSettings}
+              />
+            ) : null}
+            {mediaType === 'video' && videoPromptOpen ? (
+              <VideoPromptWorkspace
                 config={aiConfig}
                 mode={aiMode}
                 onOpenSettings={openAiSettings}
