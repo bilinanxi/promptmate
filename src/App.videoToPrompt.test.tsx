@@ -36,6 +36,25 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+function structuredVideoPrompt(prefix = '') {
+  return {
+    zh: {
+      scene: `${prefix}红色陶瓷杯位于桌面`,
+      subject_motion: '滑向画面中央',
+      camera_motion: '镜头缓慢推进',
+      temporal_change: '',
+      transition: '',
+    },
+    en: {
+      scene: `${prefix}A red ceramic mug sits on a table`,
+      subject_motion: 'It slides to the center',
+      camera_motion: 'The camera slowly pushes in',
+      temporal_change: '',
+      transition: '',
+    },
+  }
+}
+
 async function openVideoPromptWorkspace(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: '视频' }))
   expect(screen.queryByRole('region', { name: '视频转提示词' })).not.toBeInTheDocument()
@@ -69,10 +88,7 @@ beforeEach(() => {
     height: 1080,
     frames,
   })
-  aiMocks.generateFromVideo.mockResolvedValue({
-    zh: '红色陶瓷杯滑向画面中央，镜头缓慢推进。',
-    en: 'A red ceramic mug slides to the center as the camera slowly pushes in.',
-  })
+  aiMocks.generateFromVideo.mockResolvedValue(structuredVideoPrompt())
 })
 
 describe('video to prompt workspace', () => {
@@ -108,15 +124,15 @@ describe('video to prompt workspace', () => {
       expect.stringMatching(/^video-/),
     )
     const result = within(workspace).getByRole('textbox', { name: '视频提示词结果' })
-    expect(result).toHaveValue('红色陶瓷杯滑向画面中央，镜头缓慢推进。')
+    expect(result).toHaveValue('红色陶瓷杯位于桌面，滑向画面中央，镜头缓慢推进')
     await user.click(within(workspace).getByRole('button', { name: 'EN' }))
     expect(result).toHaveValue(
-      'A red ceramic mug slides to the center as the camera slowly pushes in.',
+      'A red ceramic mug sits on a table, It slides to the center, The camera slowly pushes in',
     )
   })
 
   it('cancels active analysis and ignores late results when leaving video mode', async () => {
-    const pending = deferred<{ zh: string; en: string }>()
+    const pending = deferred<ReturnType<typeof structuredVideoPrompt>>()
     aiMocks.generateFromVideo.mockReturnValueOnce(pending.promise)
     const user = userEvent.setup()
     render(<App />)
@@ -137,7 +153,7 @@ describe('video to prompt workspace', () => {
     expect(screen.queryByRole('region', { name: '视频转提示词' })).not.toBeInTheDocument()
 
     await act(async () => {
-      pending.resolve({ zh: '不应出现', en: 'Must not appear' })
+      pending.resolve(structuredVideoPrompt('不应出现'))
       await pending.promise
     })
     expect(screen.queryByDisplayValue('不应出现')).not.toBeInTheDocument()

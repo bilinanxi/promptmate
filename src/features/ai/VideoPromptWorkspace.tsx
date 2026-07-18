@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 
-import { aiNativeClient, type AiCreativityMode, type AiOptimizedPrompt } from './aiNativeClient'
+import {
+  aiNativeClient,
+  type AiCreativityMode,
+  type AiOptimizedPrompt,
+  type AiStructuredVideoPrompt,
+  type AiVideoPromptLanguage,
+} from './aiNativeClient'
 import { validateAiProviderConfig, type AiProviderConfig } from './aiProviderConfig'
 import { safeAiErrorMessage } from './safeAiError'
 import { prepareVideoForPrompt, type PreparedVideo } from './videoPromptInput'
@@ -15,9 +21,38 @@ interface VideoPromptWorkspaceProps {
   onOpenSettings(): void
 }
 
+type VideoPromptField = keyof AiVideoPromptLanguage
+
+const VIDEO_PROMPT_FIELDS: Array<{ field: VideoPromptField; label: string }> = [
+  { field: 'scene', label: '画面基础' },
+  { field: 'subject_motion', label: '主体运动' },
+  { field: 'camera_motion', label: '镜头运动' },
+  { field: 'temporal_change', label: '时间变化' },
+  { field: 'transition', label: '转场' },
+]
+
+function normalizedVideoPrompt(prompt: AiStructuredVideoPrompt): AiStructuredVideoPrompt {
+  const normalizeLanguage = (language: AiVideoPromptLanguage): AiVideoPromptLanguage => ({
+    scene: language.scene.trim(),
+    subject_motion: language.subject_motion.trim(),
+    camera_motion: language.camera_motion.trim(),
+    temporal_change: language.temporal_change.trim(),
+    transition: language.transition.trim(),
+  })
+  return { zh: normalizeLanguage(prompt.zh), en: normalizeLanguage(prompt.en) }
+}
+
+function composeVideoPrompt(language: AiVideoPromptLanguage, locale: 'zh' | 'en') {
+  return VIDEO_PROMPT_FIELDS.map(({ field }) => language[field].trim())
+    .filter(Boolean)
+    .join(locale === 'zh' ? '，' : ', ')
+}
+
 export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoPromptWorkspaceProps) {
   const [video, setVideo] = useState<SelectedVideo | null>(null)
-  const [result, setResult] = useState<AiOptimizedPrompt | null>(null)
+  const [result, setResult] = useState<AiStructuredVideoPrompt | null>(null)
+  const [composed, setComposed] = useState<AiOptimizedPrompt | null>(null)
+  const [manualComposed, setManualComposed] = useState({ zh: false, en: false })
   const [language, setLanguage] = useState<'zh' | 'en'>('zh')
   const [pending, setPending] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -50,6 +85,8 @@ export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoProm
     setPending(false)
     setProcessing(false)
     setResult(null)
+    setComposed(null)
+    setManualComposed({ zh: false, en: false })
     setError('')
     setStatus(video ? 'AI 设置已变化，请重新生成视频提示词。' : '')
   }, [providerFingerprint, video])
@@ -71,6 +108,8 @@ export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoProm
     stopPending()
     setVideo(null)
     setResult(null)
+    setComposed(null)
+    setManualComposed({ zh: false, en: false })
     setError('')
     if (!file) return
     const selection = attempt.current
@@ -130,7 +169,13 @@ export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoProm
         currentRequestId,
       )
       if (currentAttempt !== attempt.current) return
-      setResult({ zh: prompt.zh.trim(), en: prompt.en.trim() })
+      const structured = normalizedVideoPrompt(prompt)
+      setResult(structured)
+      setComposed({
+        zh: composeVideoPrompt(structured.zh, 'zh'),
+        en: composeVideoPrompt(structured.en, 'en'),
+      })
+      setManualComposed({ zh: false, en: false })
       setLanguage('zh')
       setStatus('已生成中英文视频提示词，可编辑后复制。')
     } catch (reason) {
@@ -145,18 +190,42 @@ export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoProm
     }
   }
 
-  function editResult(value: string) {
-    if (!result) return
-    setResult({ ...result, [language]: value })
+  function markUserEdit(message = '') {
     if (pending) {
-      stopPending('内容已修改，AI 结果未覆盖。')
+      stopPending(message || '内容已修改，AI 结果未覆盖。')
     } else {
-      setStatus((current) => (current === '内容已修改，AI 结果未覆盖。' ? current : ''))
+      setStatus(message)
     }
   }
 
+  function editResult(value: string) {
+    if (!composed) return
+    setComposed({ ...composed, [language]: value })
+    setManualComposed({ ...manualComposed, [language]: true })
+    markUserEdit()
+  }
+
+  function editSection(field: VideoPromptField, value: string) {
+    if (!result || !composed) return
+    const nextLanguage = { ...result[language], [field]: value }
+    setResult({ ...result, [language]: nextLanguage })
+    if (manualComposed[language]) {
+      markUserEdit('结构字段已更新；完整提示词含手动修改，未自动覆盖。')
+      return
+    }
+    setComposed({ ...composed, [language]: composeVideoPrompt(nextLanguage, language) })
+    markUserEdit()
+  }
+
+  function recomposeResult() {
+    if (!result || !composed) return
+    setComposed({ ...composed, [language]: composeVideoPrompt(result[language], language) })
+    setManualComposed({ ...manualComposed, [language]: false })
+    markUserEdit('已按结构字段重新拼装完整提示词。')
+  }
+
   async function copyResult() {
-    const value = result?.[language].trim()
+    const value = composed?.[language].trim()
     if (!value) return
     try {
       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
@@ -236,13 +305,52 @@ export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoProm
               </button>
             </div>
           </div>
-          <textarea
-            aria-label="视频提示词结果"
-            value={result?.[language] ?? ''}
-            placeholder="选择视频并生成后，可在这里编辑结果。"
-            disabled={!result}
-            onChange={(event) => editResult(event.target.value)}
-          />
+          {result ? (
+            <div className="video-structure-editor" aria-labelledby="video-structure-title">
+              <h3 id="video-structure-title">结构化拆解</h3>
+              <p>
+                {manualComposed[language]
+                  ? '完整提示词含手动修改；结构字段不会自动覆盖它。'
+                  : '分别调整画面、运动、时间变化和转场；修改字段会重新拼装完整提示词。'}
+              </p>
+              <div className="video-structure-grid">
+                {VIDEO_PROMPT_FIELDS.map(({ field, label }) => (
+                  <label key={field}>
+                    <span>{label}</span>
+                    <textarea
+                      aria-label={label}
+                      lang={language === 'zh' ? 'zh-CN' : 'en'}
+                      value={result[language][field]}
+                      placeholder={
+                        field === 'scene' ? '描述主体、场景、灯光与风格' : '未识别到时可留空'
+                      }
+                      onChange={(event) => editSection(field, event.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <label className="video-composed-output">
+            <span>完整提示词</span>
+            <textarea
+              aria-label="视频提示词结果"
+              lang={language === 'zh' ? 'zh-CN' : 'en'}
+              value={composed?.[language] ?? ''}
+              placeholder="选择视频并生成后，可在这里编辑结果。"
+              disabled={!composed}
+              onChange={(event) => editResult(event.target.value)}
+            />
+          </label>
+          {manualComposed[language] ? (
+            <button
+              type="button"
+              className="secondary-button video-recompose-button"
+              onClick={recomposeResult}
+            >
+              按结构重新拼装完整提示词
+            </button>
+          ) : null}
           {pending ? (
             <div className="basket-ai-progress">
               <p>正在分析有序时间采样帧并生成中英文视频提示词…</p>
@@ -261,7 +369,7 @@ export function VideoPromptWorkspace({ config, mode, onOpenSettings }: VideoProm
             <button
               type="button"
               className="copy-button"
-              disabled={!result?.[language].trim()}
+              disabled={!composed?.[language].trim()}
               onClick={copyResult}
             >
               复制当前提示词

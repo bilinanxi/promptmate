@@ -470,6 +470,67 @@ button:disabled {
   background: #f5f7fa;
 }
 
+.video-structure-editor {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #dce5f3;
+  border-radius: 11px;
+  background: #f8faff;
+}
+
+.video-structure-editor h3,
+.video-structure-editor p {
+  margin: 0;
+}
+
+.video-structure-editor h3 {
+  color: #263b5d;
+  font-size: 14px;
+}
+
+.video-structure-editor p {
+  margin-top: 3px;
+  color: #718096;
+  font-size: 11px;
+}
+
+.video-structure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.video-structure-grid label,
+.video-composed-output {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #43536b;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.video-structure-grid label:first-child {
+  grid-column: 1 / -1;
+}
+
+.image-prompt-result .video-structure-grid textarea {
+  min-height: 68px;
+  padding: 8px 9px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.video-composed-output > textarea {
+  margin-top: 2px;
+}
+
+.video-recompose-button {
+  width: 100%;
+  margin-top: 8px;
+}
+
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -1668,8 +1729,13 @@ textarea.output-text {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .image-prompt-body {
+  .image-prompt-body,
+  .video-structure-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .video-structure-grid label:first-child {
+    grid-column: 1;
   }
 
   .image-prompt-heading {

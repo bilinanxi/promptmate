@@ -116,7 +116,22 @@ describe('AI native client', () => {
   })
 
   it('passes bounded ordered video frames through the native multimodal command', async () => {
-    const prompt = { zh: '镜头缓慢推进。', en: 'The camera slowly pushes in.' }
+    const prompt = {
+      zh: {
+        scene: '雨夜街道',
+        subject_motion: '人物向前奔跑',
+        camera_motion: '镜头缓慢推进',
+        temporal_change: '雨势增强',
+        transition: '',
+      },
+      en: {
+        scene: 'A rainy street',
+        subject_motion: 'A person runs forward',
+        camera_motion: 'The camera slowly pushes in',
+        temporal_change: 'The rain intensifies',
+        transition: '',
+      },
+    }
     const invoke = vi.fn().mockResolvedValue(prompt)
     const client = createAiNativeClient({ isTauri: () => true, invoke })
     const video = {

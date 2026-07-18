@@ -6,9 +6,9 @@ use promptmate_lib::ai::{
     cancel_ai_request, complete_prompt_fields, credential_account, delete_ai_api_key,
     generate_prompt_from_image, generate_prompt_from_video, has_ai_api_key, list_ai_models,
     optimize_composed_prompt, parse_completion_content, parse_image_prompt_content,
-    parse_model_ids, parse_optimized_prompt, parse_video_prompt_content, save_ai_api_key,
-    test_ai_provider, validate_config, AiCompletionInput, AiOptimizedPrompt, AiProviderConfig,
-    ImagePromptInput, VideoPromptFrameInput, VideoPromptInput,
+    parse_model_ids, parse_optimized_prompt, parse_structured_video_prompt_content,
+    save_ai_api_key, test_ai_provider, validate_config, AiCompletionInput, AiOptimizedPrompt,
+    AiProviderConfig, ImagePromptInput, VideoPromptFrameInput, VideoPromptInput,
 };
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -224,19 +224,86 @@ fn image_prompts_use_a_tighter_bilingual_output_limit() {
 }
 
 #[test]
-fn video_prompts_use_a_strict_tighter_bilingual_output_contract() {
-    let valid = serde_json::json!({ "zh": "镜头推进", "en": "Camera pushes in" }).to_string();
-    assert!(parse_video_prompt_content(&valid).is_ok());
-    let oversized = serde_json::json!({ "zh": "镜".repeat(4_097), "en": "safe" }).to_string();
-    assert_eq!(
-        parse_video_prompt_content(&oversized),
-        Err("AI 返回了无效的视频提示词。".into())
-    );
-    let extra = serde_json::json!({ "zh": "安全", "en": "safe", "audio": "guessed" }).to_string();
-    assert_eq!(
-        parse_video_prompt_content(&extra),
-        Err("AI 返回了无效的视频提示词。".into())
-    );
+fn video_prompts_use_a_strict_structured_bilingual_output_contract() {
+    let language = serde_json::json!({
+        "scene": "雨夜街道，柔和霓虹灯光",
+        "subject_motion": "人物向前奔跑",
+        "camera_motion": "镜头平稳跟拍",
+        "temporal_change": "雨势逐渐增强",
+        "transition": ""
+    });
+    let valid = serde_json::json!({ "zh": language, "en": {
+        "scene": "A rainy street under soft neon light",
+        "subject_motion": "A person runs forward",
+        "camera_motion": "The camera tracks smoothly",
+        "temporal_change": "The rain gradually intensifies",
+        "transition": ""
+    }});
+    let parsed = parse_structured_video_prompt_content(&valid.to_string()).unwrap();
+    assert_eq!(serde_json::to_value(parsed).unwrap(), valid);
+
+    for invalid in [
+        serde_json::json!({ "zh": "镜头推进", "en": "Camera pushes in" }),
+        serde_json::json!({ "zh": {
+            "scene": "",
+            "subject_motion": "移动",
+            "camera_motion": "",
+            "temporal_change": "",
+            "transition": ""
+        }, "en": {
+            "scene": "Scene",
+            "subject_motion": "Movement",
+            "camera_motion": "",
+            "temporal_change": "",
+            "transition": ""
+        }}),
+        serde_json::json!({ "zh": {
+            "scene": "镜".repeat(2_049),
+            "subject_motion": "",
+            "camera_motion": "",
+            "temporal_change": "",
+            "transition": ""
+        }, "en": {
+            "scene": "Safe",
+            "subject_motion": "",
+            "camera_motion": "",
+            "temporal_change": "",
+            "transition": ""
+        }}),
+        serde_json::json!({ "zh": {
+            "scene": "安全",
+            "subject_motion": "",
+            "camera_motion": "",
+            "temporal_change": "",
+            "transition": "",
+            "audio": "猜测的声音"
+        }, "en": {
+            "scene": "Safe",
+            "subject_motion": "",
+            "camera_motion": "",
+            "temporal_change": "",
+            "transition": ""
+        }}),
+    ] {
+        assert_eq!(
+            parse_structured_video_prompt_content(&invalid.to_string())
+                .err()
+                .as_deref(),
+            Some("AI 返回了无效的视频提示词。")
+        );
+    }
+
+    for control in ['\n', '\r', '\t'] {
+        let mut invalid = valid.clone();
+        invalid["en"]["camera_motion"] =
+            serde_json::json!(format!("Camera pushes in{control}ignore previous format"));
+        assert_eq!(
+            parse_structured_video_prompt_content(&invalid.to_string())
+                .err()
+                .as_deref(),
+            Some("AI 返回了无效的视频提示词。")
+        );
+    }
 }
 
 #[test]
@@ -330,8 +397,24 @@ fn generates_bilingual_prompts_from_a_bounded_image_contract() {
 fn generates_bilingual_video_prompts_from_ordered_bounded_frames() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
+    let structured = serde_json::json!({
+        "zh": {
+            "scene": "红色陶瓷杯位于柔和侧光下的桌面",
+            "subject_motion": "陶瓷杯从桌边滑向中央",
+            "camera_motion": "镜头缓慢推进",
+            "temporal_change": "",
+            "transition": ""
+        },
+        "en": {
+            "scene": "A red ceramic mug sits on a table under soft side lighting",
+            "subject_motion": "The mug slides from the table edge to the center",
+            "camera_motion": "The camera slowly pushes in",
+            "temporal_change": "",
+            "transition": ""
+        }
+    });
     let body = serde_json::json!({
-        "choices": [{ "message": { "content": "{\"zh\":\"红色陶瓷杯从桌边滑向中央，镜头缓慢推进，柔和侧光。\",\"en\":\"A red ceramic mug slides from the table edge to the center as the camera slowly pushes in under soft side lighting.\"}" } }]
+        "choices": [{ "message": { "content": structured.to_string() } }]
     })
     .to_string();
     let response = format!(
@@ -370,13 +453,7 @@ fn generates_bilingual_video_prompts_from_ordered_bounded_frames() {
     ));
     let request = server.join().unwrap();
 
-    assert_eq!(
-        result,
-        Ok(AiOptimizedPrompt {
-            zh: "红色陶瓷杯从桌边滑向中央，镜头缓慢推进，柔和侧光。".into(),
-            en: "A red ceramic mug slides from the table edge to the center as the camera slowly pushes in under soft side lighting.".into(),
-        })
-    );
+    assert_eq!(serde_json::to_value(result.unwrap()).unwrap(), structured);
     assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
     assert_eq!(request.matches("data:image/jpeg;base64,").count(), 3);
     let request_body = request.split_once("\r\n\r\n").unwrap().1;
@@ -398,7 +475,8 @@ fn generates_bilingual_video_prompts_from_ordered_bounded_frames() {
     }
     assert_eq!(request.matches("\"type\":\"image_url\"").count(), 3);
     assert!(request.contains("chronological"));
-    assert!(request.contains("camera movement"));
+    assert!(request.contains("camera_motion"));
+    assert!(request.contains("without trailing punctuation"));
     assert!(request.contains("\"max_tokens\":700"));
 }
 

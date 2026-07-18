@@ -28,6 +28,19 @@ export interface AiOptimizedPrompt {
   en: string
 }
 
+export interface AiVideoPromptLanguage {
+  scene: string
+  subject_motion: string
+  camera_motion: string
+  temporal_change: string
+  transition: string
+}
+
+export interface AiStructuredVideoPrompt {
+  zh: AiVideoPromptLanguage
+  en: AiVideoPromptLanguage
+}
+
 export interface ImagePromptInput {
   mimeType: 'image/jpeg'
   base64: string
@@ -103,7 +116,7 @@ export interface AiNativeClient {
     input: VideoPromptInput,
     mode: AiCreativityMode,
     requestId: string,
-  ): Promise<AiOptimizedPrompt>
+  ): Promise<AiStructuredVideoPrompt>
   cancel(requestId: string): Promise<void>
 }
 
@@ -149,7 +162,7 @@ export function createAiNativeClient(
         requestId,
       }),
     generateFromVideo: (config, input, mode, requestId) =>
-      desktopOnly<AiOptimizedPrompt>('generate_prompt_from_video', {
+      desktopOnly<AiStructuredVideoPrompt>('generate_prompt_from_video', {
         config,
         input,
         mode,
