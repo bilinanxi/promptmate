@@ -639,28 +639,9 @@ button:disabled {
   margin-left: auto;
 }
 
-.load-more-row {
+.prompt-scroll-sentinel {
   grid-column: 1 / -1;
-  display: flex;
-  justify-content: center;
-  padding: 14px 0 4px;
-}
-
-.load-more-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 16px;
-  border: 1px solid #9dbcf4;
-  border-radius: 9px;
-  color: #174ea6;
-  background: #eef4ff;
-  cursor: pointer;
-}
-
-.load-more-button span {
-  color: #687386;
-  font-size: 12px;
+  height: 1px;
 }
 
 .search-empty {

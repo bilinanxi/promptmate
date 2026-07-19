@@ -455,6 +455,7 @@ export function App() {
   const [tag, setTag] = useState<string>()
   const [source, setSource] = useState<PromptSource>()
   const searchInput = useRef<HTMLInputElement>(null)
+  const promptScrollSentinel = useRef<HTMLDivElement>(null)
   const modalOpener = useRef<HTMLElement>(null)
   const modalFallbackFocus = useRef<HTMLButtonElement>(null)
   const aiSettingsDialog = useRef<HTMLElement>(null)
@@ -525,7 +526,15 @@ export function App() {
   const { categories, tags } = libraryCatalog[mediaType]
   const tagFilters: { label: string; tag?: string }[] = [
     { label: '全部' },
-    ...tags.map((value) => ({ label: value, tag: value })),
+    ...tags
+      .filter(
+        (value) =>
+          !categoryId ||
+          promptConcepts.some(
+            (prompt) => prompt.category_id === categoryId && prompt.tags.includes(value),
+          ),
+      )
+      .map((value) => ({ label: value, tag: value })),
   ]
   const visiblePrompts = useMemo(
     () => filterPrompts(promptConcepts, { query, categoryId, tag, source }),
@@ -550,9 +559,27 @@ export function App() {
         ? recommendedPrompts
         : visiblePrompts
   const renderedPrompts = displayedPrompts.slice(0, promptRenderLimit)
+  const hasMorePrompts = renderedPrompts.length < displayedPrompts.length
   useEffect(() => {
     setPromptRenderLimit(PROMPT_BATCH_SIZE)
   }, [mediaType, libraryView, query, categoryId, tag, source])
+  useEffect(() => {
+    const sentinel = promptScrollSentinel.current
+    if (!hasMorePrompts || !sentinel || typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setPromptRenderLimit((current) =>
+            Math.min(current + PROMPT_BATCH_SIZE, displayedPrompts.length),
+          )
+        }
+      },
+      { rootMargin: '320px 0px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [displayedPrompts.length, hasMorePrompts, promptRenderLimit])
   const hasActiveFilters = Boolean(categoryId || tag || source)
   const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
   const selected = selectedIds
@@ -1799,6 +1826,7 @@ export function App() {
                 onClick={() => {
                   setLibraryView('all')
                   setCategoryId(category.id)
+                  setTag(undefined)
                 }}
               >
                 <span aria-hidden="true">{category.label[0]}</span>
@@ -2081,22 +2109,12 @@ export function App() {
                           }
                         />
                       ))}
-                      {renderedPrompts.length < displayedPrompts.length ? (
-                        <div className="load-more-row">
-                          <button
-                            type="button"
-                            className="load-more-button"
-                            aria-label={`加载更多词条，当前 ${renderedPrompts.length}，共 ${displayedPrompts.length}`}
-                            onClick={() =>
-                              setPromptRenderLimit((current) => current + PROMPT_BATCH_SIZE)
-                            }
-                          >
-                            加载更多
-                            <span>
-                              已显示 {renderedPrompts.length} / {displayedPrompts.length}
-                            </span>
-                          </button>
-                        </div>
+                      {hasMorePrompts ? (
+                        <div
+                          ref={promptScrollSentinel}
+                          className="prompt-scroll-sentinel"
+                          aria-hidden="true"
+                        />
                       ) : null}
                     </>
                   ) : libraryView === 'all' &&

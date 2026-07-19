@@ -23,6 +23,7 @@ function mockClipboard(writeText: (text: string) => Promise<void>) {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   if (originalClipboard) {
     Object.defineProperty(navigator, 'clipboard', originalClipboard)
   } else {
@@ -31,55 +32,38 @@ afterEach(() => {
 })
 
 describe('PromptMate workspace', () => {
-  it('renders a bounded first batch and lets the user load more from a large library', async () => {
-    const user = userEvent.setup()
+  it('loads more prompt cards automatically while scrolling without a button', async () => {
+    let intersectionCallback: IntersectionObserverCallback = () => undefined
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          intersectionCallback = callback
+        }
+        observe = observe
+        disconnect = disconnect
+      },
+    )
     const { container } = render(<App />)
 
     expect(container.querySelectorAll('.prompt-card')).toHaveLength(48)
-    const loadMore = screen.getByRole('button', {
-      name: '加载更多词条，当前 48，共 3159',
-    })
+    expect(screen.queryByRole('button', { name: /加载更多词条/ })).not.toBeInTheDocument()
 
-    await user.click(loadMore)
+    await act(() =>
+      intersectionCallback(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      ),
+    )
 
     expect(container.querySelectorAll('.prompt-card')).toHaveLength(96)
-    expect(screen.getByRole('button', { name: '加载更多词条，当前 96，共 3159' })).toBeVisible()
+    expect(observe).toHaveBeenCalled()
+    expect(disconnect).toHaveBeenCalled()
   })
 
-  it('resets a loaded batch when search, category, tag, source, or media changes', async () => {
-    const user = userEvent.setup()
-    const { container } = render(<App />)
-    const visibleCards = () => container.querySelectorAll('.prompt-card')
-    const loadMore = () => screen.getByRole('button', { name: /加载更多词条/ })
-
-    await user.click(loadMore())
-    expect(visibleCards()).toHaveLength(96)
-
-    const search = screen.getByRole('searchbox', { name: '搜索提示词' })
-    await user.type(search, 'hair')
-    expect(visibleCards()).toHaveLength(48)
-    await user.clear(search)
-
-    await user.click(loadMore())
-    await user.click(screen.getByRole('button', { name: '服装配饰' }))
-    expect(visibleCards()).toHaveLength(48)
-    await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
-
-    await user.click(loadMore())
-    await user.click(screen.getByRole('button', { name: '服装' }))
-    expect(visibleCards()).toHaveLength(48)
-    await user.click(screen.getByRole('button', { name: '全部' }))
-
-    await user.click(loadMore())
-    await user.click(screen.getByRole('button', { name: '内置精选' }))
-    expect(visibleCards()).toHaveLength(48)
-
-    await user.click(screen.getByRole('button', { name: '视频' }))
-    expect(visibleCards()).toHaveLength(8)
-  })
-
-  it('keeps more than one batch of managed prompts ahead of builtins', async () => {
-    const user = userEvent.setup()
+  it('keeps managed prompts ahead of builtins in the scrolling library', () => {
     const prompts: PromptConcept[] = Array.from({ length: 60 }, (_, index) => ({
       schema_version: '1.0',
       id: `user-batch-${index + 1}`,
@@ -103,11 +87,32 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: /^批量用户词条 48，/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^批量用户词条 49，/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^年轻女性，/ })).not.toBeInTheDocument()
+  })
 
-    await user.click(screen.getByRole('button', { name: /加载更多词条/ }))
+  it('shows only contextual secondary filters inside a parent category', async () => {
+    const user = userEvent.setup()
+    render(<App />)
 
-    expect(screen.getByRole('button', { name: /^批量用户词条 60，/ })).toBeVisible()
-    expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '动作姿态' }))
+
+    expect(screen.queryByRole('button', { name: '人物' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '服装' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '动作' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '成人向' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '截图整理' })).toBeVisible()
+  })
+
+  it('clears a stale secondary filter when switching parent categories', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'YouMind整理' }))
+    await user.click(screen.getByRole('button', { name: '动作姿态' }))
+
+    expect(screen.getByRole('button', { name: '动作姿态' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: 'YouMind整理' })).not.toBeInTheDocument()
+    expect(screen.getByText('找到 429 个词条')).toBeVisible()
+    expect(screen.getByRole('button', { name: /行走中回眸，/ })).toBeVisible()
   })
 
   it('toggles a prompt favorite without mutating the inspiration basket', async () => {
@@ -157,7 +162,7 @@ describe('PromptMate workspace', () => {
     render(<App />)
 
     await user.click(screen.getByRole('button', { name: '场景环境' }))
-    expect(screen.getByText('找到 283 个词条')).toBeVisible()
+    expect(screen.getByText('找到 310 个词条')).toBeVisible()
     await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
 
     expect(screen.getByText('正在展示 3159 个精选词条')).toBeVisible()
@@ -702,7 +707,7 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: /^静谧中式庭院，/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^年轻女性，/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '场景环境' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('找到 283 个词条')).toBeVisible()
+    expect(screen.getByText('找到 310 个词条')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
 

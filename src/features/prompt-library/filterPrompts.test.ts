@@ -6,11 +6,27 @@ describe('filterPrompts', () => {
   it('filters by an exact category', () => {
     const results = filterPrompts(builtinPrompts, { categoryId: 'scene-environment' })
 
-    expect(results).toHaveLength(283)
+    expect(results).toHaveLength(310)
     expect(results.map(({ id }) => id)).toEqual(
       expect.arrayContaining(['neon-rain', 'chinese-courtyard', 'starry-sky']),
     )
     expect(results.every(({ category_id }) => category_id === 'scene-environment')).toBe(true)
+  })
+
+  it('keeps action and expression category results semantically separated', () => {
+    const actions = new Set(
+      filterPrompts(builtinPrompts, { categoryId: 'action-pose' }).map(({ id }) => id),
+    )
+    const expressions = new Set(
+      filterPrompts(builtinPrompts, { categoryId: 'expression-emotion' }).map(({ id }) => id),
+    )
+
+    expect(actions.size).toBe(429)
+    expect(expressions.size).toBe(68)
+    expect(actions.has('gravure-pose')).toBe(true)
+    expect(actions.has('streaming-tears')).toBe(false)
+    expect(expressions.has('streaming-tears')).toBe(true)
+    expect(expressions.has('gravure-pose')).toBe(false)
   })
 
   it('filters by an exact tag', () => {

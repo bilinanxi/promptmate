@@ -54,7 +54,7 @@ describe('copy builtin prompt then edit', () => {
     )
     expect(within(dialog).getByRole('combobox', { name: '分类' })).toHaveValue('people-subjects')
     expect(within(dialog).getByRole('textbox', { name: '标签（可选）' })).toHaveValue(
-      '人像, 新手友好',
+      '人像, 新手友好, 人物',
     )
     expect(within(dialog).getByRole('textbox', { name: '中文别名（可选）' })).toHaveValue(
       '年轻女子',

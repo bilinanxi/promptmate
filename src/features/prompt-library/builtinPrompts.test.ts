@@ -123,7 +123,7 @@ describe('builtinPrompts', () => {
       ['school-uniform', 'clothing-accessories'],
       ['pravda-military-uniform', 'clothing-accessories'],
       ['legwear', 'clothing-accessories'],
-      ['gag', 'people-subjects'],
+      ['gag', 'objects-props'],
       ['wardrobe-malfunction', 'clothing-accessories'],
       ['public-indecency', 'action-pose'],
       ['playground', 'scene-environment'],
@@ -131,7 +131,7 @@ describe('builtinPrompts', () => {
       ['upskirt', 'camera-composition'],
       ['hand-on-another-s-chest', 'action-pose'],
       ['guro', 'visual-style'],
-      ['sunlight-angel-with-wings-and-halo', 'quality-effects'],
+      ['sunlight-angel-with-wings-and-halo', 'people-subjects'],
     ] as const
 
     for (const [id, category_id] of expected) {
@@ -225,6 +225,56 @@ describe('builtinPrompts', () => {
 
     for (const [id, partial] of Object.entries(expected)) {
       expect(byId.get(id), id).toMatchObject({ id, ...partial })
+    }
+  })
+
+  it('keeps action and expression families in their matching sidebar categories', () => {
+    const byId = new Map(builtinPrompts.map((prompt) => [prompt.id, prompt]))
+    const expected = {
+      'streaming-tears': 'expression-emotion',
+      'wiping-tears': 'action-pose',
+      disappointed: 'expression-emotion',
+      frustrated: 'expression-emotion',
+      despair: 'expression-emotion',
+      gloom: 'expression-emotion',
+      'kubrick-stare': 'expression-emotion',
+      evil: 'expression-emotion',
+      'gravure-pose': 'action-pose',
+      'between-legs': 'camera-composition',
+      'cropped-legs': 'camera-composition',
+      'leg-belt': 'clothing-accessories',
+      'multiple-legs': 'people-subjects',
+      'leg-up': 'action-pose',
+      lowleg: 'action-pose',
+      'no-legs': 'people-subjects',
+      'tail-between-legs': 'action-pose',
+      'foot-out-of-frame': 'camera-composition',
+      'feet-up': 'action-pose',
+      feet: 'people-subjects',
+    } as const
+
+    for (const [id, category_id] of Object.entries(expected)) {
+      expect(byId.get(id), id).toMatchObject({ id, category_id })
+    }
+  })
+
+  it('keeps each semantic subcategory tag aligned with its parent category', () => {
+    const semanticTags: Record<string, string> = {
+      'people-subjects': '人物',
+      'clothing-accessories': '服装',
+      'action-pose': '动作',
+      'expression-emotion': '表情',
+      'scene-environment': '场景',
+      'objects-props': '道具',
+      'lighting-atmosphere': '灯光',
+      'camera-composition': '镜头',
+      'visual-style': '风格',
+      'quality-effects': '画质特效',
+      'negative-prompt': '负面提示词',
+    }
+
+    for (const prompt of builtinPrompts) {
+      expect(prompt.tags, prompt.id).toContain(semanticTags[prompt.category_id])
     }
   })
 
