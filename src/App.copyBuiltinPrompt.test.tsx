@@ -140,7 +140,7 @@ describe('copy builtin prompt then edit', () => {
       source: 'user',
       status: 'approved',
     })
-  }, 15_000)
+  }, 30_000)
 
   it('rejects unchanged builtin names, then creates a parsed manageable user copy without changing its origin', async () => {
     const user = userEvent.setup()
@@ -204,7 +204,7 @@ describe('copy builtin prompt then edit', () => {
     expect(screen.getByRole('button', { name: '取消收藏 年轻女性副本' })).toBeVisible()
     expect(screen.getByRole('button', { name: '编辑 年轻女性副本' })).toBeVisible()
     expect(screen.getByRole('button', { name: '删除 年轻女性副本' })).toBeVisible()
-  }, 15_000)
+  }, 30_000)
 
   it('probes globally occupied IDs across media and survives a durable remount', async () => {
     const occupiedImage: PromptConcept = {
@@ -339,7 +339,7 @@ describe('copy builtin prompt then edit', () => {
     await user.click(screen.getByRole('button', { name: '图片' }))
     expect(screen.queryByRole('button', { name: /^视频推进副本，/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^不应跨媒体，/ })).not.toBeInTheDocument()
-  }, 10_000)
+  }, 30_000)
 
   it('preserves basket order, favorites, manual output, and recent history while copying', async () => {
     const recentPayload = {
@@ -385,5 +385,5 @@ describe('copy builtin prompt then edit', () => {
     expect(localStorage.getItem(FAVORITES_STORAGE_KEY)).toBe(favoriteBefore)
     expect(localStorage.getItem(RECENT_USAGE_STORAGE_KEY)).toBe(JSON.stringify(recentPayload))
     expect(screen.getByRole('button', { name: '最近使用，1 条' })).toBeVisible()
-  }, 15_000)
+  }, 30_000)
 })

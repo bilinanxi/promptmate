@@ -31,6 +31,46 @@ export const builtinPresetsByMedia = {
       description: '用雨夜、回眸动作和电影风格构成叙事瞬间。',
       promptIds: ['solitary-traveler', 'neon-rain', 'look-back', 'cinematic'],
     },
+    {
+      id: 'soft-fashion-portrait',
+      mediaType: 'image',
+      title: '柔光时尚人像',
+      description: '以长发、微笑、连衣裙和轮廓光快速组合柔和半身人像。',
+      promptIds: ['long-hair', 'smile', 'dress', 'rim-light-fb0e5ab0', 'medium-close'],
+    },
+    {
+      id: 'cyberpunk-rain-city',
+      mediaType: 'image',
+      title: '赛博朋克雨城',
+      description: '组合赛博朋克风格、霓虹灯、雨天和城市环境。',
+      promptIds: ['cyberpunk', 'glowing-neon-lights', 'rainy-days', 'city'],
+    },
+    {
+      id: 'spring-hanfu',
+      mediaType: 'image',
+      title: '春日汉服',
+      description: '用浅绿上杉、百褶裙与樱花构成清新的汉服人物场景。',
+      promptIds: ['hanfu', 'light-green-upper-shan', 'pleated-skirt', 'cherry-blossoms'],
+    },
+    {
+      id: 'golden-ink-courtyard',
+      mediaType: 'image',
+      title: '金色水墨庭院',
+      description: '将水墨画、东方庭院、留白和黄金时段光线组合为传统意境画面。',
+      promptIds: [
+        'ink-wash-painting',
+        'chinese-courtyard',
+        'negative-space',
+        'golden-hour-lighting',
+      ],
+    },
+    {
+      id: 'cinematic-starry-traveler',
+      mediaType: 'image',
+      title: '星夜旅人',
+      description: '利用星空、电影级光照、孤独旅人和回眸动作营造夜间叙事。',
+      promptIds: ['starry-sky', 'cinematic-lighting', 'solitary-traveler', 'look-back'],
+    },
   ],
   video: [
     {

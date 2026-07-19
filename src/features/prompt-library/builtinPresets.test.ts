@@ -7,6 +7,11 @@ const expectedPresetIds = {
     ['young-woman', 'rim-light', 'medium-close', 'cinematic'],
     ['chinese-courtyard', 'volumetric', 'negative-space', 'ink-wash'],
     ['solitary-traveler', 'neon-rain', 'look-back', 'cinematic'],
+    ['long-hair', 'smile', 'dress', 'rim-light-fb0e5ab0', 'medium-close'],
+    ['cyberpunk', 'glowing-neon-lights', 'rainy-days', 'city'],
+    ['hanfu', 'light-green-upper-shan', 'pleated-skirt', 'cherry-blossoms'],
+    ['ink-wash-painting', 'chinese-courtyard', 'negative-space', 'golden-hour-lighting'],
+    ['starry-sky', 'cinematic-lighting', 'solitary-traveler', 'look-back'],
   ],
   video: [
     ['slow-push-in', 'walking-forward', 'fabric-in-breeze', 'floating-dust'],

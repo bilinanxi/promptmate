@@ -4,9 +4,13 @@ import { filterPrompts } from './filterPrompts'
 
 describe('filterPrompts', () => {
   it('filters by an exact category', () => {
-    expect(
-      filterPrompts(builtinPrompts, { categoryId: 'scene-environment' }).map(({ id }) => id),
-    ).toEqual(['neon-rain', 'chinese-courtyard'])
+    const results = filterPrompts(builtinPrompts, { categoryId: 'scene-environment' })
+
+    expect(results).toHaveLength(283)
+    expect(results.map(({ id }) => id)).toEqual(
+      expect.arrayContaining(['neon-rain', 'chinese-courtyard', 'starry-sky']),
+    )
+    expect(results.every(({ category_id }) => category_id === 'scene-environment')).toBe(true)
   })
 
   it('filters by an exact tag', () => {
@@ -17,7 +21,7 @@ describe('filterPrompts', () => {
   })
 
   it('filters by source', () => {
-    expect(filterPrompts(builtinPrompts, { source: 'builtin' })).toHaveLength(12)
+    expect(filterPrompts(builtinPrompts, { source: 'builtin' })).toHaveLength(builtinPrompts.length)
     expect(filterPrompts(builtinPrompts, { source: 'user' })).toEqual([])
   })
 

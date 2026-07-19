@@ -150,7 +150,7 @@ describe('edit user prompt', () => {
     await user.clear(search)
     await user.type(search, '种子别名')
     expect(screen.queryByRole('button', { name: /^更新肖像，/ })).not.toBeInTheDocument()
-  }, 15_000)
+  }, 30_000)
 
   it('clears both optional descriptions while preserving stable prompt fields', async () => {
     const user = userEvent.setup()

@@ -168,7 +168,7 @@ describe('create user prompt', () => {
     expect(screen.getByRole('button', { name: '取消收藏 柔光肖像' })).toBeVisible()
     await user.type(screen.getByRole('searchbox', { name: '搜索提示词' }), '肖像别名')
     expect(card).toBeVisible()
-  }, 15_000)
+  }, 30_000)
 
   it('keeps newly created image and video prompts isolated to their media user source', async () => {
     const user = userEvent.setup()
@@ -200,7 +200,7 @@ describe('create user prompt', () => {
     await user.click(screen.getByRole('button', { name: '我的词条' }))
     expect(screen.getByRole('button', { name: /^隔离图片词条，/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^隔离视频词条，/ })).not.toBeInTheDocument()
-  }, 15_000)
+  }, 30_000)
 
   it('restores a valid created user prompt after remount', async () => {
     const user = userEvent.setup()

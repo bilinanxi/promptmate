@@ -74,6 +74,8 @@ import {
 import type { MediaType, PromptConcept, PromptSource } from './features/prompt-library/types'
 import './styles.css'
 
+const PROMPT_BATCH_SIZE = 48
+
 const sourceLabels: Record<PromptSource, string> = {
   builtin: '内置精选',
   user: '我的词条',
@@ -123,8 +125,8 @@ const emptyCreateDraft: CreatePromptDraft = {
 
 function promptsForMedia(mediaType: MediaType, userPrompts: readonly PromptConcept[]) {
   return [
-    ...builtinPromptsByMedia[mediaType],
     ...userPrompts.filter((prompt) => prompt.media_types[0] === mediaType),
+    ...builtinPromptsByMedia[mediaType],
   ]
 }
 
@@ -434,6 +436,7 @@ export function App() {
   const [libraryView, setLibraryView] = useState<
     'all' | 'favorites' | 'recent' | 'templates' | 'recommended'
   >('all')
+  const [promptRenderLimit, setPromptRenderLimit] = useState(PROMPT_BATCH_SIZE)
   const [recommendationOffset, setRecommendationOffset] = useState(0)
   const [{ selectedIds, undoSelection }, setBasket] = useState<{
     selectedIds: string[]
@@ -515,7 +518,10 @@ export function App() {
     latestCreateDraft.current = createDraft
   }, [createDraft])
 
-  const promptConcepts = promptsForMedia(mediaType, userPrompts)
+  const promptConcepts = useMemo(
+    () => promptsForMedia(mediaType, userPrompts),
+    [mediaType, userPrompts],
+  )
   const { categories, tags } = libraryCatalog[mediaType]
   const tagFilters: { label: string; tag?: string }[] = [
     { label: '全部' },
@@ -543,6 +549,10 @@ export function App() {
       : libraryView === 'recommended'
         ? recommendedPrompts
         : visiblePrompts
+  const renderedPrompts = displayedPrompts.slice(0, promptRenderLimit)
+  useEffect(() => {
+    setPromptRenderLimit(PROMPT_BATCH_SIZE)
+  }, [mediaType, libraryView, query, categoryId, tag, source])
   const hasActiveFilters = Boolean(categoryId || tag || source)
   const hasActiveCriteria = Boolean(query.trim() || hasActiveFilters)
   const selected = selectedIds
@@ -2047,27 +2057,48 @@ export function App() {
               ) : (
                 <div className="prompt-grid">
                   {displayedPrompts.length ? (
-                    displayedPrompts.map((concept) => (
-                      <PromptCard
-                        key={concept.id}
-                        concept={concept}
-                        selected={selectedIds.includes(concept.id)}
-                        favorite={favoriteIds.includes(makeFavoriteKey(mediaType, concept.id))}
-                        onToggle={() => toggleConcept(concept.id)}
-                        onToggleFavorite={() => toggleFavorite(concept.id)}
-                        onCopy={
-                          concept.source === 'builtin'
-                            ? () => openCopyDialog(concept.id)
-                            : undefined
-                        }
-                        onEdit={
-                          isManagedPrompt(concept) ? () => openEditDialog(concept.id) : undefined
-                        }
-                        onDelete={
-                          isManagedPrompt(concept) ? () => openDeleteDialog(concept.id) : undefined
-                        }
-                      />
-                    ))
+                    <>
+                      {renderedPrompts.map((concept) => (
+                        <PromptCard
+                          key={concept.id}
+                          concept={concept}
+                          selected={selectedIds.includes(concept.id)}
+                          favorite={favoriteIds.includes(makeFavoriteKey(mediaType, concept.id))}
+                          onToggle={() => toggleConcept(concept.id)}
+                          onToggleFavorite={() => toggleFavorite(concept.id)}
+                          onCopy={
+                            concept.source === 'builtin'
+                              ? () => openCopyDialog(concept.id)
+                              : undefined
+                          }
+                          onEdit={
+                            isManagedPrompt(concept) ? () => openEditDialog(concept.id) : undefined
+                          }
+                          onDelete={
+                            isManagedPrompt(concept)
+                              ? () => openDeleteDialog(concept.id)
+                              : undefined
+                          }
+                        />
+                      ))}
+                      {renderedPrompts.length < displayedPrompts.length ? (
+                        <div className="load-more-row">
+                          <button
+                            type="button"
+                            className="load-more-button"
+                            aria-label={`加载更多词条，当前 ${renderedPrompts.length}，共 ${displayedPrompts.length}`}
+                            onClick={() =>
+                              setPromptRenderLimit((current) => current + PROMPT_BATCH_SIZE)
+                            }
+                          >
+                            加载更多
+                            <span>
+                              已显示 {renderedPrompts.length} / {displayedPrompts.length}
+                            </span>
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
                   ) : libraryView === 'all' &&
                     source === 'user' &&
                     !query.trim() &&

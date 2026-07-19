@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { FAVORITES_STORAGE_KEY } from './features/prompt-library/favoriteStorage'
 import { RECENT_USAGE_STORAGE_KEY } from './features/prompt-library/recentUsageStorage'
+import type { PromptConcept } from './features/prompt-library/types'
+import { USER_PROMPTS_STORAGE_KEY } from './features/prompt-library/userPromptStorage'
 
 const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
 
@@ -29,6 +31,85 @@ afterEach(() => {
 })
 
 describe('PromptMate workspace', () => {
+  it('renders a bounded first batch and lets the user load more from a large library', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    expect(container.querySelectorAll('.prompt-card')).toHaveLength(48)
+    const loadMore = screen.getByRole('button', {
+      name: '加载更多词条，当前 48，共 3159',
+    })
+
+    await user.click(loadMore)
+
+    expect(container.querySelectorAll('.prompt-card')).toHaveLength(96)
+    expect(screen.getByRole('button', { name: '加载更多词条，当前 96，共 3159' })).toBeVisible()
+  })
+
+  it('resets a loaded batch when search, category, tag, source, or media changes', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+    const visibleCards = () => container.querySelectorAll('.prompt-card')
+    const loadMore = () => screen.getByRole('button', { name: /加载更多词条/ })
+
+    await user.click(loadMore())
+    expect(visibleCards()).toHaveLength(96)
+
+    const search = screen.getByRole('searchbox', { name: '搜索提示词' })
+    await user.type(search, 'hair')
+    expect(visibleCards()).toHaveLength(48)
+    await user.clear(search)
+
+    await user.click(loadMore())
+    await user.click(screen.getByRole('button', { name: '服装配饰' }))
+    expect(visibleCards()).toHaveLength(48)
+    await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
+
+    await user.click(loadMore())
+    await user.click(screen.getByRole('button', { name: '服装' }))
+    expect(visibleCards()).toHaveLength(48)
+    await user.click(screen.getByRole('button', { name: '全部' }))
+
+    await user.click(loadMore())
+    await user.click(screen.getByRole('button', { name: '内置精选' }))
+    expect(visibleCards()).toHaveLength(48)
+
+    await user.click(screen.getByRole('button', { name: '视频' }))
+    expect(visibleCards()).toHaveLength(8)
+  })
+
+  it('keeps more than one batch of managed prompts ahead of builtins', async () => {
+    const user = userEvent.setup()
+    const prompts: PromptConcept[] = Array.from({ length: 60 }, (_, index) => ({
+      schema_version: '1.0',
+      id: `user-batch-${index + 1}`,
+      zh: `批量用户词条 ${index + 1}`,
+      en: `managed prompt ${index + 1}`,
+      description_zh: '',
+      description_en: '',
+      category_id: 'people-subjects',
+      tags: [],
+      aliases_zh: [],
+      aliases_en: [],
+      media_types: ['image'],
+      source: index % 2 === 0 ? 'user' : 'imported',
+      status: 'approved',
+    }))
+    localStorage.setItem(USER_PROMPTS_STORAGE_KEY, JSON.stringify({ version: 2, prompts }))
+
+    const { container } = render(<App />)
+
+    expect(container.querySelectorAll('.prompt-card')).toHaveLength(48)
+    expect(screen.getByRole('button', { name: /^批量用户词条 48，/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /^批量用户词条 49，/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^年轻女性，/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /加载更多词条/ }))
+
+    expect(screen.getByRole('button', { name: /^批量用户词条 60，/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
+  })
+
   it('toggles a prompt favorite without mutating the inspiration basket', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -76,10 +157,10 @@ describe('PromptMate workspace', () => {
     render(<App />)
 
     await user.click(screen.getByRole('button', { name: '场景环境' }))
-    expect(screen.getByText('找到 2 个词条')).toBeVisible()
+    expect(screen.getByText('找到 283 个词条')).toBeVisible()
     await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
 
-    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+    expect(screen.getByText('正在展示 3159 个精选词条')).toBeVisible()
     expect(screen.getByRole('button', { name: '场景环境' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -392,7 +473,7 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('heading', { name: '灵感词库' })).toBeVisible()
     expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
     expect(screen.getByText('适合人像、时尚和叙事画面的通用主体。')).toBeVisible()
-    expect(within(screen.getByRole('main')).getAllByText('内置精选')).toHaveLength(12)
+    expect(within(screen.getByRole('main')).getAllByText('内置精选')).toHaveLength(48)
     expect(screen.getByText('灵感篮')).toBeVisible()
   })
 
@@ -593,7 +674,7 @@ describe('PromptMate workspace', () => {
     await user.click(screen.getByRole('button', { name: '清除搜索' }))
 
     expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
-    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+    expect(screen.getByText('正在展示 3159 个精选词条')).toBeVisible()
   })
 
   it('focuses search with Ctrl+K and clears it with Escape', async () => {
@@ -608,7 +689,7 @@ describe('PromptMate workspace', () => {
     await user.keyboard('{Escape}')
 
     expect(search).toHaveValue('')
-    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+    expect(screen.getByText('正在展示 3159 个精选词条')).toBeVisible()
   })
 
   it('filters the library by category and restores all prompts through browse all', async () => {
@@ -621,12 +702,12 @@ describe('PromptMate workspace', () => {
     expect(screen.getByRole('button', { name: /^静谧中式庭院，/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^年轻女性，/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '场景环境' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('找到 2 个词条')).toBeVisible()
+    expect(screen.getByText('找到 283 个词条')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: '浏览全部灵感' }))
 
     expect(screen.getByRole('button', { name: /^年轻女性，/ })).toBeVisible()
-    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+    expect(screen.getByText('正在展示 3159 个精选词条')).toBeVisible()
   })
 
   it('filters the library by tag and clears the tag with All', async () => {
@@ -803,7 +884,7 @@ describe('PromptMate workspace', () => {
       'aria-pressed',
       'false',
     )
-    expect(screen.getByText('正在展示 12 个精选词条')).toBeVisible()
+    expect(screen.getByText('正在展示 3159 个精选词条')).toBeVisible()
   })
 
   it('keeps all top-level library navigation states mutually exclusive', async () => {
@@ -892,7 +973,7 @@ describe('PromptMate workspace', () => {
     render(<App />)
 
     await user.click(screen.getByRole('button', { name: '模板组合' }))
-    expect(screen.getAllByRole('button', { name: /^使用模板/ })).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: /^使用模板/ })).toHaveLength(8)
     expect(screen.getByRole('heading', { name: '东方庭院' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: '角色入场' })).not.toBeInTheDocument()
 
